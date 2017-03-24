@@ -44,6 +44,7 @@ int ackposition            = 0;
 int rawispcl               = 0;         //if 1 the raw folder is copied to pcl folder and raw files are renamed to *.pcl in the pcl folder
 int rawiseps               = 0;         //if 1 the raw folder is copied to eps folder and raw files are renamed to *.eps in the eps folder
 int outputFormatText       = 0;         //0=no conversion  1=Unix (LF) 2= Windows (CR+LF) 3=MAC (CR)
+int printColour            = 0;         //Default colour is black    
 
 int bold                   = 0;         //Currently bold and double-strike are the same
 int italic                 = 0;
@@ -60,8 +61,6 @@ int double_width           = 0;         //Double width printing not yet implemen
 int double_height          = 0;         //Double height printing not yet implemented - NB does not affect first line of a page!
 int outline_printing       = 0;         //Outline printing not yet implemeneted
 int shadow_printing        = 0;         //Shadow printing not yet implemented
-
-int escapeon               = 0;
 
 int print_controlcodes     = 0;
 int print_uppercontrolcodes  = 0;
@@ -182,10 +181,62 @@ int write_bmp(const char *filename, int width, int height, char *rgb)
 
 void putpx(int x, int y)
 {
-    int pos = y * 3 * 1984 + x * 3;
-    printermemory[pos + 0] = 0;
-    printermemory[pos + 1] = 0;
-    printermemory[pos + 2] = 0;
+    // Write RGB value of 000 to specific pixel on the created bitmap
+    int rgb1, rgb2, rgb3;
+    switch (printColour) {
+    case 0:
+        // Black
+        rgb1 = 0;
+        rgb2 = 0;
+        rgb3 = 0;
+        break;
+    case 1:
+        // Magenta
+        rgb1 = 255;
+        rgb2 = 0;
+        rgb3 = 255;
+        break;
+    case 2:
+        // Cyan
+        rgb1 = 0;
+        rgb2 = 255;
+        rgb3 = 255;
+        break;        
+    case 3:
+        // Violet
+        rgb1 = 238;
+        rgb2 = 130;
+        rgb3 = 238;
+        break;
+    case 4:
+        // Yellow
+        rgb1 = 255;
+        rgb2 = 255;
+        rgb3 = 0;
+        break;
+    case 5:
+        // Red
+        rgb1 = 255;
+        rgb2 = 0;
+        rgb3 = 0;
+        break;
+    case 6:
+        // Green
+        rgb1 = 0;
+        rgb2 = 255;
+        rgb3 = 0;
+        break;
+    case 7:
+        // White
+        rgb1 = 255;
+        rgb2 = 255;
+        rgb3 = 255;
+        break;
+    }
+    int pos = y * 3 * 1984 + x * 3;    
+    printermemory[pos + 0] = rgb1;
+    printermemory[pos + 1] = rgb2;
+    printermemory[pos + 2] = rgb3;
 }
 
 /*
@@ -908,7 +959,6 @@ main_loop_for_printing:
     state = 1;
     // ASCII Branch
     while (state != 0) {
-        escapeon=0;
         // read next char
         state = read_byte_from_printer((char *) &xd);
         if (state == 0) {
@@ -959,7 +1009,6 @@ main_loop_for_printing:
             }
             // ESc Branch for graphics mode
             if (xd == (int) 27) {   // ESC v 27 v 1b
-                escapeon=1;
                 state = read_byte_from_printer((char *) &xd);
 
                 switch (xd) {
@@ -968,12 +1017,12 @@ main_loop_for_printing:
                     pitch                  =  12;
                     dpih                   = 240; 
                     dpiv                   = 216;
+                    printColour            =   0;
                     bold                   =   0;
                     italic                 =   0;
                     underlined             =   0;
                     superscript            =   0;
                     subscript              =   0;
-                    bold                   =   0;
                     strikethrough          =   0;
                     overscore              =   0;
                     single_continuous_line =   0;
@@ -1079,8 +1128,10 @@ main_loop_for_printing:
                     state = read_byte_from_printer((char *) &nH);
                     xpos = ((nH * 256) + nL) * (dpih / 60) + marginleftp;
                     break;
-                case 'r':   // ESC r Set printing colour
-                    // Not implemented yet
+                case 'r':   
+                    // ESC r n Set printing colour (n=0-7) 
+                    // (Black, Magenta, Cyan, Violet, Yellow, Red, Green, White)
+                    state = read_byte_from_printer((char *) &printColour);
                     break;
                 case 25:    // ESC EM n Control paper loading / ejecting (do nothing)
                     state = read_byte_from_printer((char *) &nL);
@@ -1293,7 +1344,6 @@ main_loop_for_printing:
 
             // ESc Branch
             if ((xd == (int) 27) && (print_controlcodes == 0) ) {   // ESC v 27 v 1b
-                escapeon=1;
                 state = read_byte_from_printer((char *) &xd);
 
                 switch (xd) {
@@ -1302,12 +1352,12 @@ main_loop_for_printing:
                     pitch                  =  12;
                     dpih                   = 240; 
                     dpiv                   = 216;
+                    printColour            =   0;
                     bold                   =   0;
                     italic                 =   0;
                     underlined             =   0;
                     superscript            =   0;
                     subscript              =   0;
-                    bold                   =   0;
                     strikethrough          =   0;
                     overscore              =   0;
                     single_continuous_line =   0;
@@ -1981,6 +2031,11 @@ main_loop_for_printing:
                         if (nL==4) print_uppercontrolcodes=0;                     
                     }
                     break;
+                case 'r':   
+                    // ESC r n Set printing colour (n=0-7) 
+                    // (Black, Magenta, Cyan, Violet, Yellow, Red, Green, White)
+                    state = read_byte_from_printer((char *) &printColour);
+                    break;                    
                 case 25:    // ESC EM n Control paper loading / ejecting (do nothing)
                     state = read_byte_from_printer((char *) &nL);
                     break;                        
