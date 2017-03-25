@@ -181,7 +181,7 @@ int write_bmp(const char *filename, int width, int height, char *rgb)
 
 void putpx(int x, int y)
 {
-    // Write RGB value to specific pixel on the created bitmap
+    // Write RGB value of 000 to specific pixel on the created bitmap
     int rgb1, rgb2, rgb3;
     switch (printColour) {
     case 0:
@@ -252,7 +252,6 @@ void putpixel(SDL_Surface * surface, int x, int y, Uint32 pixel)
     putpx(x, y);    // Aufruf f?Speicherplot
     if (sdlon == 0) return;
 
-    // Add pixel to the screen
     x = x / divi;
     y = y / divi;
     if (x > xdim) return;
@@ -261,44 +260,6 @@ void putpixel(SDL_Surface * surface, int x, int y, Uint32 pixel)
 
     // Here p is the address to the pixel we want to set 
     Uint8 *p = (Uint8 *) surface->pixels + y * surface->pitch + x * bpp;
-
-    // Convert the otherwise black pixel to the desired colour
-    if (pixel == 0x0000000) {
-        switch (printColour) {
-        case 0:
-            // Black
-            pixel = 0x0000000;
-            break;
-        case 1:
-            // Magenta
-            pixel = 0x0FF00FF;
-            break;
-        case 2:
-            // Cyan
-            pixel = 0x000FFFF;
-            break;        
-        case 3:
-            // Violet
-            pixel = 0x0EE82EE;
-            break;
-        case 4:
-            // Yellow
-            pixel = 0x0FFFF00;
-            break;
-        case 5:
-            // Red
-            pixel = 0x0FF0000;
-            break;
-        case 6:
-            // Green
-            pixel = 0x000FF00;
-            break;
-        case 7:
-            // White
-            pixel = 0x0FFFFFF;
-            break;
-        }    
-    }
 
     switch (bpp) {
         case 1:
