@@ -335,6 +335,7 @@ double xpos = 0, ypos = 0;                  // position of print head
 
 // ******bit images
 int m;                                      // Mode for bit images printing (m)
+int c, v, h;                                // Used for raster graphics printing
 unsigned char nL, nH;                       // width of bit image line, lowbyte and high byte
 unsigned char mL, mH;                       // extra parameters mode, lowbyte and high byte
 unsigned char tL, tH;                       // extra parameters top margin, lowbyte and high byte
@@ -407,33 +408,444 @@ int test_for_new_paper()
 }
 
 void
-_24pin_line_print(int dotColumns, float hPixelWidth, float vPixelWidth,
-      float xzoom, float yzoom)
+_1pin_line_print(int dotColumns, float hPixelWidth, float vPixelWidth,
+     float xzoom, float yzoom, int rleEncoded)
 {
-    int i, fByte, xByte;
-    unsigned int xd;
+    // SASCHA - this needs to be checked
+    int i, fByte, xByte, j;
+    unsigned int xd, repeater;
     test_for_new_paper();
-    for (i = 0; i < dotColumns; i++) {
-        for (fByte = 0; fByte < 4; fByte++) {
-            ypos2 = ypos + fByte * (8 * vPixelWidth);
+    if (rleEncoded) {
+        for (i = 0; i < dotColumns; i++) {
             state = 0;
             clock_gettime(CLOCK_REALTIME, &tvx);
             startzeit = tvx.tv_sec;
-
+            while (state == 0) {
+                state = read_byte_from_printer((char *) &repeater);  // number of times to repeat next byte
+                clock_gettime(CLOCK_REALTIME, &tvx);
+                if (((tvx.tv_sec - startzeit) >= timeout) && (state == 0)) goto raus_1p;
+            }
+            if (repeater <= 127) {
+                repeater++;
+                // string of data byes to be printed
+                for (j = 0; j < repeater; j++) {
+                    state = 0;
+                    clock_gettime(CLOCK_REALTIME, &tvx);
+                    startzeit = tvx.tv_sec;                    
+                    while (state == 0) {
+                        state = read_byte_from_printer((char *) &xd);  // byte to be printed
+                        clock_gettime(CLOCK_REALTIME, &tvx);
+                        if (((tvx.tv_sec - startzeit) >= timeout) && (state == 0)) goto raus_1p;
+                    }
+                    for (xByte = 0; xByte < 8; xByte++) {
+                        if (xd & 128) putpixel(display, xpos, ypos + xByte, 0x0000000);
+                        xd = xd << 1;
+                    }
+                    xpos = xpos + hPixelWidth;
+                    i++;
+                    // SDL_UpdateRect(display, 0, 0, 0, 0);
+                }
+            } else {
+                // Repeat following byte (257 - repeater) times
+                repeater = 257 - repeater;
+                state = 0;
+                clock_gettime(CLOCK_REALTIME, &tvx);
+                startzeit = tvx.tv_sec;                
+                while (state == 0) {
+                    state = read_byte_from_printer((char *) &xd);  // byte to be printed
+                    clock_gettime(CLOCK_REALTIME, &tvx);
+                    if (((tvx.tv_sec - startzeit) >= timeout) && (state == 0)) goto raus_1p;
+                }
+                for (j = 0; j < repeater; j++) {
+                    for (xByte = 0; xByte < 8; xByte++) {
+                        if (xd & 128) putpixel(display, xpos, ypos + xByte, 0x0000000);
+                        xd = xd << 1;
+                    }
+                    xpos = xpos + hPixelWidth;
+                    // SDL_UpdateRect(display, 0, 0, 0, 0);
+                }
+                i++;
+            }
+        }        
+    } else {    
+        for (i = 0; i < dotColumns; i++) {
+            state = 0;
+            clock_gettime(CLOCK_REALTIME, &tvx);
+            startzeit = tvx.tv_sec;
             while (state == 0) {
                 state = read_byte_from_printer((char *) &xd);  // byte1
                 clock_gettime(CLOCK_REALTIME, &tvx);
-                if (((tvx.tv_sec - startzeit) >= timeout) && (state == 0)) goto raus_24p;
+                if (((tvx.tv_sec - startzeit) >= timeout) && (state == 0)) goto raus_1p;
             }
             for (xByte = 0; xByte < 8; xByte++) {
-                if (xd & 128) putpixel(display, xpos, ypos2 + xByte, 0x0000000);
+                if (xd & 128) putpixel(display, xpos, ypos + xByte, 0x0000000);
                 xd = xd << 1;
             }
+            xpos = xpos + hPixelWidth;
+            // SDL_UpdateRect(display, 0, 0, 0, 0);
         }
-        xpos = xpos + hPixelWidth;
-        // SDL_UpdateRect(display, 0, 0, 0, 0);
+    }
+  raus_1p:
+    return;
+}
+
+void
+_8pin_line_print_72dpi(int dotColumns, float hPixelWidth, float vPixelWidth,
+           float xzoom, float yzoom, int rleEncoded)
+{
+    int opr, fByte, j;
+    unsigned int xd, repeater;
+
+    test_for_new_paper();
+    if (rleEncoded) {
+        for (opr = 0; opr < dotColumns; opr++) {
+            state = 0;
+            clock_gettime(CLOCK_REALTIME, &tvx);
+            startzeit = tvx.tv_sec;
+            while (state == 0) {
+                state = read_byte_from_printer((char *) &repeater);  // number of times to repeat next byte
+                clock_gettime(CLOCK_REALTIME, &tvx);
+                if (((tvx.tv_sec - startzeit) >= timeout) && (state == 0)) goto raus_8p_72dpi;
+            }
+            if (repeater <= 127) {
+                repeater++;
+                // string of data byes to be printed
+                for (j = 0; j < repeater; j++) {
+                    state = 0;
+                    clock_gettime(CLOCK_REALTIME, &tvx);
+                    startzeit = tvx.tv_sec;                    
+                    while (state == 0) {
+                        state = read_byte_from_printer((char *) &xd);  // byte to be printed
+                        clock_gettime(CLOCK_REALTIME, &tvx);
+                        if (((tvx.tv_sec - startzeit) >= timeout) && (state == 0)) goto raus_8p_72dpi;
+                    }                    
+                    for (fByte = 0; fByte < 8; fByte++) {
+                        if (xd & 128) putpixelbig(xpos, ypos + fByte * dpiv / 72, 1, 1);
+                        xd = xd << 1;
+                    }
+                    xpos = xpos + hPixelWidth;
+                    // SDL_UpdateRect(display, 0, 0, 0, 0);
+                    opr++;
+                }
+            } else {
+                // Repeat following byte (257 - repeater) times
+                repeater = 257 - repeater;
+                state = 0;
+                clock_gettime(CLOCK_REALTIME, &tvx);
+                startzeit = tvx.tv_sec;                 
+                while (state == 0) {
+                    state = read_byte_from_printer((char *) &xd);  // byte to be printed
+                    clock_gettime(CLOCK_REALTIME, &tvx);
+                    if (((tvx.tv_sec - startzeit) >= timeout) && (state == 0)) goto raus_8p_72dpi;
+                }
+                for (j = 0; j < repeater; j++) {
+                    for (fByte = 0; fByte < 8; fByte++) {
+                        if (xd & 128) putpixelbig(xpos, ypos + fByte * dpiv / 72, 1, 1);
+                        xd = xd << 1;
+                    }
+                    xpos = xpos + hPixelWidth;
+                    // SDL_UpdateRect(display, 0, 0, 0, 0);
+                }
+                opr++;
+            }
+        }        
+    } else {    
+        for (opr = 0; opr < dotColumns; opr++) {
+            // timeout
+            state = 0;
+            clock_gettime(CLOCK_REALTIME, &tvx);
+            startzeit = tvx.tv_sec;
+            while (state == 0) {
+                state = read_byte_from_printer((char *) &xd);  // byte1
+                clock_gettime(CLOCK_REALTIME, &tvx);
+                if (((tvx.tv_sec - startzeit) >= timeout) && (state == 0)) goto raus_8p_72dpi;
+            }
+            if ((dotColumns - opr) == 3) opr = opr; // SASCHA - what is this intended to do?
+            for (fByte = 0; fByte < 8; fByte++) {
+                if (xd & 128) putpixelbig(xpos, ypos + fByte * dpiv / 72, 1, 1);
+                xd = xd << 1;
+            }
+            xpos = xpos + hPixelWidth;
+        }
+    }
+  raus_8p_72dpi:
+    return;
+}
+
+
+void
+_8pin_line_print(int dotColumns, float hPixelWidth, float vPixelWidth,
+     float xzoom, float yzoom, int rleEncoded)
+{
+    int opr, fByte, j;
+    unsigned int xd, repeater;
+    test_for_new_paper();
+    if (rleEncoded) {
+        for (opr = 0; opr < dotColumns; opr++) {
+            state = 0;
+            clock_gettime(CLOCK_REALTIME, &tvx);
+            startzeit = tvx.tv_sec;
+            while (state == 0) {
+                state = read_byte_from_printer((char *) &repeater);  // number of times to repeat next byte
+                clock_gettime(CLOCK_REALTIME, &tvx);
+                if (((tvx.tv_sec - startzeit) >= timeout) && (state == 0)) goto raus_8p;
+            }
+            if (repeater <= 127) {
+                repeater++;
+                // string of data byes to be printed
+                for (j = 0; j < repeater; j++) {
+                    state = 0;
+                    clock_gettime(CLOCK_REALTIME, &tvx);
+                    startzeit = tvx.tv_sec;                    
+                    while (state == 0) {
+                        state = read_byte_from_printer((char *) &xd);  // byte to be printed
+                        clock_gettime(CLOCK_REALTIME, &tvx);
+                        if (((tvx.tv_sec - startzeit) >= timeout) && (state == 0)) goto raus_8p;
+                    }                    
+                    for (fByte = 0; fByte < 8; fByte++) {
+                        if (xd & 128) putpixelbig(xpos, ypos2 + fByte * vPixelWidth, hPixelWidth, vPixelWidth);
+                        xd = xd << 1;
+                    }
+                    xpos = xpos + hPixelWidth;
+                    // SDL_UpdateRect(display, 0, 0, 0, 0);
+                    opr++;
+                }
+            } else {
+                // Repeat following byte (257 - repeater) times
+                repeater = 257 - repeater;
+                state = 0;
+                clock_gettime(CLOCK_REALTIME, &tvx);
+                startzeit = tvx.tv_sec;                 
+                while (state == 0) {
+                    state = read_byte_from_printer((char *) &xd);  // byte to be printed
+                    clock_gettime(CLOCK_REALTIME, &tvx);
+                    if (((tvx.tv_sec - startzeit) >= timeout) && (state == 0)) goto raus_8p;
+                }
+                for (j = 0; j < repeater; j++) {
+                    for (fByte = 0; fByte < 8; fByte++) {
+                        if (xd & 128) putpixelbig(xpos, ypos2 + fByte * vPixelWidth, hPixelWidth, vPixelWidth);
+                        xd = xd << 1;
+                    }
+                    xpos = xpos + hPixelWidth;
+                    // SDL_UpdateRect(display, 0, 0, 0, 0);
+                }
+                opr++;
+            }
+        }        
+    } else {      
+        for (opr = 0; opr < dotColumns; opr++) {
+            // timeout
+            state = 0;
+            clock_gettime(CLOCK_REALTIME, &tvx);
+            startzeit = tvx.tv_sec;
+            while (state == 0) {
+                state = read_byte_from_printer((char *) &xd);  // byte1
+                clock_gettime(CLOCK_REALTIME, &tvx);
+                if (((tvx.tv_sec - startzeit) >= timeout) && (state == 0)) goto raus_8p;
+            }
+
+            if ((dotColumns - opr) == 3) opr = opr; // SASCHA - what is this intended to do?
+            for (fByte = 0; fByte < 8; fByte++) {
+                if (xd & 128) putpixelbig(xpos, ypos + fByte * vPixelWidth, hPixelWidth, vPixelWidth);
+                xd = xd << 1;
+            }
+            xpos = xpos + hPixelWidth;
+        }
+    }
+  raus_8p:
+    return;
+}
+
+void
+_24pin_line_print(int dotColumns, float hPixelWidth, float vPixelWidth,
+      float xzoom, float yzoom, int rleEncoded)
+{
+    int i, fByte, xByte, j;
+    unsigned int xd, repeater;
+    test_for_new_paper();
+    if (rleEncoded) {
+        for (i = 0; i < dotColumns; i++) {            
+            state = 0;
+            clock_gettime(CLOCK_REALTIME, &tvx);
+            startzeit = tvx.tv_sec;
+            fByte = 0;
+            while (state == 0) {
+                state = read_byte_from_printer((char *) &repeater);  // number of times to repeat next byte
+                clock_gettime(CLOCK_REALTIME, &tvx);
+                if (((tvx.tv_sec - startzeit) >= timeout) && (state == 0)) goto raus_24p;
+            }
+            if (repeater <= 127) {
+                repeater++;
+                // string of data byes to be printed
+                for (j = 0; j < repeater; j++) {
+                    ypos2 = ypos + fByte * (8 * vPixelWidth);                    
+                    state = 0;
+                    clock_gettime(CLOCK_REALTIME, &tvx);
+                    startzeit = tvx.tv_sec;                    
+                    while (state == 0) {
+                        state = read_byte_from_printer((char *) &xd);  // byte to be printed
+                        clock_gettime(CLOCK_REALTIME, &tvx);
+                        if (((tvx.tv_sec - startzeit) >= timeout) && (state == 0)) goto raus_24p;
+                    }                    
+                    for (xByte = 0; xByte < 8; xByte++) {
+                        if (xd & 128) putpixel(display, xpos, ypos2 + xByte, 0x0000000);
+                        xd = xd << 1;
+                    }
+                    if (fByte == 3) {
+                        xpos = xpos + hPixelWidth;
+                    }
+                    fByte++;
+                    if (fByte > 3) fByte = 0;                     
+                    // SDL_UpdateRect(display, 0, 0, 0, 0);
+                    i++;
+                }
+            } else {
+                // Repeat following byte (257 - repeater) times
+                repeater = 257 - repeater;
+                state = 0;
+                clock_gettime(CLOCK_REALTIME, &tvx);
+                startzeit = tvx.tv_sec;                 
+                while (state == 0) {
+                    state = read_byte_from_printer((char *) &xd);  // byte to be printed
+                    clock_gettime(CLOCK_REALTIME, &tvx);
+                    if (((tvx.tv_sec - startzeit) >= timeout) && (state == 0)) goto raus_24p;
+                }
+                for (j = 0; j < repeater; j++) {
+                    ypos2 = ypos + fByte * (8 * vPixelWidth);                                         
+                    for (xByte = 0; xByte < 8; xByte++) {
+                        if (xd & 128) putpixel(display, xpos, ypos2 + xByte, 0x0000000);
+                        xd = xd << 1;
+                    }
+                    if (fByte == 3) {
+                        xpos = xpos + hPixelWidth;
+                    }
+                    fByte++;
+                    if (fByte > 3) fByte = 0;                     
+                    // SDL_UpdateRect(display, 0, 0, 0, 0);
+                }
+                i++;
+            }
+        }         
+    } else {      
+        for (i = 0; i < dotColumns; i++) {
+            for (fByte = 0; fByte < 4; fByte++) {
+                ypos2 = ypos + fByte * (8 * vPixelWidth);
+                state = 0;
+                clock_gettime(CLOCK_REALTIME, &tvx);
+                startzeit = tvx.tv_sec;
+
+                while (state == 0) {
+                    state = read_byte_from_printer((char *) &xd);  // byte1
+                    clock_gettime(CLOCK_REALTIME, &tvx);
+                    if (((tvx.tv_sec - startzeit) >= timeout) && (state == 0)) goto raus_24p;
+                }
+                for (xByte = 0; xByte < 8; xByte++) {
+                    if (xd & 128) putpixel(display, xpos, ypos2 + xByte, 0x0000000);
+                    xd = xd << 1;
+                }
+            }
+            xpos = xpos + hPixelWidth;
+            // SDL_UpdateRect(display, 0, 0, 0, 0);
+        }
     }
   raus_24p:
+    return;
+}
+
+void
+_48pin_line_print(int dotColumns, float hPixelWidth, float vPixelWidth,
+      float xzoom, float yzoom, int rleEncoded)
+{
+    // SASCHA - this needs to be checked - 6 bytes per column
+    int i, fByte, xByte, j;
+    unsigned int xd, repeater;
+    test_for_new_paper();
+    if (rleEncoded) {
+        for (i = 0; i < dotColumns; i++) {            
+            state = 0;
+            clock_gettime(CLOCK_REALTIME, &tvx);
+            startzeit = tvx.tv_sec;
+            fByte = 0;
+            while (state == 0) {
+                state = read_byte_from_printer((char *) &repeater);  // number of times to repeat next byte
+                clock_gettime(CLOCK_REALTIME, &tvx);
+                if (((tvx.tv_sec - startzeit) >= timeout) && (state == 0)) goto raus_48p;
+            }
+            if (repeater <= 127) {
+                repeater++;
+                // string of data byes to be printed
+                for (j = 0; j < repeater; j++) {
+                    ypos2 = ypos + fByte * (4 * vPixelWidth);                    
+                    state = 0;
+                    clock_gettime(CLOCK_REALTIME, &tvx);
+                    startzeit = tvx.tv_sec;                    
+                    while (state == 0) {
+                        state = read_byte_from_printer((char *) &xd);  // byte to be printed
+                        clock_gettime(CLOCK_REALTIME, &tvx);
+                        if (((tvx.tv_sec - startzeit) >= timeout) && (state == 0)) goto raus_48p;
+                    }                    
+                    for (xByte = 0; xByte < 8; xByte++) {
+                        if (xd & 128) putpixel(display, xpos, ypos2 + xByte, 0x0000000);
+                        xd = xd << 1;
+                    }
+                    if (fByte == 6) {
+                        xpos = xpos + hPixelWidth;
+                    }
+                    fByte++;
+                    if (fByte > 6) fByte = 0;                     
+                    // SDL_UpdateRect(display, 0, 0, 0, 0);
+                    i++;
+                }
+            } else {
+                // Repeat following byte (257 - repeater) times
+                repeater = 257 - repeater;
+                state = 0;
+                clock_gettime(CLOCK_REALTIME, &tvx);
+                startzeit = tvx.tv_sec;                 
+                while (state == 0) {
+                    state = read_byte_from_printer((char *) &xd);  // byte to be printed
+                    clock_gettime(CLOCK_REALTIME, &tvx);
+                    if (((tvx.tv_sec - startzeit) >= timeout) && (state == 0)) goto raus_48p;
+                }
+                for (j = 0; j < repeater; j++) {
+                    ypos2 = ypos + fByte * (4 * vPixelWidth);                                         
+                    for (xByte = 0; xByte < 8; xByte++) {
+                        if (xd & 128) putpixel(display, xpos, ypos2 + xByte, 0x0000000);
+                        xd = xd << 1;
+                    }
+                    if (fByte == 6) {
+                        xpos = xpos + hPixelWidth;
+                    }
+                    fByte++;
+                    if (fByte > 6) fByte = 0;                     
+                    // SDL_UpdateRect(display, 0, 0, 0, 0);
+                }
+                i++;
+            }
+        }       
+    } else {      
+        for (i = 0; i < dotColumns; i++) {
+            for (fByte = 0; fByte < 7; fByte++) {
+                ypos2 = ypos + fByte * (4 * vPixelWidth); // Reduced to 4 x vPixelWidth to allow for 48 pins
+                state = 0;
+                clock_gettime(CLOCK_REALTIME, &tvx);
+                startzeit = tvx.tv_sec;
+
+                while (state == 0) {
+                    state = read_byte_from_printer((char *) &xd);  // byte1
+                    clock_gettime(CLOCK_REALTIME, &tvx);
+                    if (((tvx.tv_sec - startzeit) >= timeout) && (state == 0)) goto raus_48p;
+                }
+                for (xByte = 0; xByte < 8; xByte++) {
+                    if (xd & 128) putpixel(display, xpos, ypos2 + xByte, 0x0000000);
+                    xd = xd << 1;
+                }
+            }
+            xpos = xpos + hPixelWidth;
+            // SDL_UpdateRect(display, 0, 0, 0, 0);
+        }
+    }
+  raus_48p:
     return;
 }
 
@@ -556,67 +968,6 @@ int printcharx(unsigned char chr)
         }
     }
     xpos = xpos + hPixelWidth * 8;
-}
-
-void
-_8pin_line_print_72dpi(int dotColumns, float hPixelWidth, float vPixelWidth,
-           float xzoom, float yzoom)
-{
-    int opr, fByte;
-    unsigned char xd;
-
-    test_for_new_paper();
-    for (opr = 0; opr < dotColumns; opr++) {
-        int ypos2 = ypos;
-        // timeout
-        state = 0;
-        clock_gettime(CLOCK_REALTIME, &tvx);
-        startzeit = tvx.tv_sec;
-        while (state == 0) {
-            state = read_byte_from_printer((char *) &xd);  // byte1
-            clock_gettime(CLOCK_REALTIME, &tvx);
-            if (((tvx.tv_sec - startzeit) >= timeout) && (state == 0)) goto raus_8p_72dpi;
-        }
-        if ((dotColumns - opr) == 3) opr = opr; // SASCHA - what is this intended to do?
-        for (fByte = 0; fByte < 8; fByte++) {
-            if (xd & 128) putpixelbig(xpos, ypos2 + fByte * dpiv / 72, 1, 1);
-            xd = xd << 1;
-        }
-        xpos = xpos + hPixelWidth;
-    }
-  raus_8p_72dpi:
-    return;
-}
-
-
-void
-_8pin_line_print(int dotColumns, float hPixelWidth, float vPixelWidth,
-     float xzoom, float yzoom)
-{
-    int opr, fByte;
-    unsigned char xd;
-    test_for_new_paper();
-    for (opr = 0; opr < dotColumns; opr++) {
-        int ypos2 = ypos;
-        // timeout
-        state = 0;
-        clock_gettime(CLOCK_REALTIME, &tvx);
-        startzeit = tvx.tv_sec;
-        while (state == 0) {
-            state = read_byte_from_printer((char *) &xd);  // byte1
-            clock_gettime(CLOCK_REALTIME, &tvx);
-            if (((tvx.tv_sec - startzeit) >= timeout) && (state == 0)) goto raus_8p;
-        }
-
-        if ((dotColumns - opr) == 3) opr = opr; // SASCHA - what is this intended to do?
-        for (fByte = 0; fByte < 8; fByte++) {
-            if (xd & 128) putpixelbig(xpos, ypos2 + fByte * vPixelWidth, hPixelWidth, vPixelWidth);
-            xd = xd << 1;
-        }
-        xpos = xpos + hPixelWidth;
-    }
-  raus_8p:
-    return;
 }
 
 void print_character(unsigned char xChar)
@@ -1076,10 +1427,85 @@ main_loop_for_printing:
                     graphics_mode          =   0;
                     microweave_printing    =   0;
                     break;                       
-                case '.':    //Raster printing
-                    // Not yet implemented
-                    // Check for ESC . / ESC . 2 / ESC .3
-                    break;
+                    case '.':    
+                        // Raster printing ESC . c v h m nL nH d1 d2 . . . dk print bit-image graphics.
+                        state = read_byte_from_printer((char *) &c);
+                        if (state == 0) break;
+                        state = read_byte_from_printer((char *) &v);
+                        if (state == 0) break;
+                        state = read_byte_from_printer((char *) &h);
+                        if (state == 0) break;
+                        state = read_byte_from_printer((char *) &m);
+                        if (state == 0) break;
+                        state = read_byte_from_printer((char *) &nL);
+                        if (state == 0) break;
+                        state = read_byte_from_printer((char *) &nH);
+                        if (state == 0) break;
+                        
+                        switch (v) {
+                            case 5:
+                                vPixelWidth = (float) dpiv / (float) 720;
+                                break;
+                            case 10:
+                                vPixelWidth = (float) dpiv / (float) 360;
+                                break;                                
+                            case 20:
+                                vPixelWidth = (float) dpiv / (float) 180;
+                                break;                                
+                        }
+                        switch (h) {
+                            case 5:
+                                hPixelWidth = (float) dpih / (float) 720;
+                                break;
+                            case 10:
+                                hPixelWidth = (float) dpih / (float) 360;
+                                break;                                
+                            case 20:
+                                hPixelWidth = (float) dpih / (float) 180;
+                                break;                                
+                        }
+                        dotColumns = nH << 8;
+                        dotColumns = dotColumns | nL;                        
+                        if ( microweave_printing == 1 ) m = 1; 
+                        switch (c) {
+                        case 0:
+                            // Normal graphics - non-compressed
+                            switch (m) {
+                                case 1:
+                                    _1pin_line_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0);
+                                    break;
+                                case 8:
+                                    _8pin_line_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0);
+                                    break;
+                                case 24:
+                                    _24pin_line_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0);
+                                    break;
+                            }
+                            break;
+                        case 1:
+                            // Normal graphics - RLE mode
+                            switch (m) {
+                                case 1:
+                                    _1pin_line_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
+                                    break;
+                                case 8:
+                                    _8pin_line_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
+                                    break;
+                                case 24:
+                                    _24pin_line_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
+                                    break;
+                            }
+                            break;                            
+                            break;
+                        case 2:
+                            // TIFF compressed mode
+                            break;
+                        case 3:
+                            // Delta Row compressed mode
+                            break;
+                        }
+                        break;
+
                 case '+':    // Set n/360-inch line spacing ESC + n
                     state = read_byte_from_printer((char *) &xd);
                     ypos = ypos + (int) xd *360 / 180; // Is this correct SASCHA?
@@ -2078,116 +2504,160 @@ main_loop_for_printing:
                 case 25:    // ESC EM n Control paper loading / ejecting (do nothing)
                     state = read_byte_from_printer((char *) &nL);
                     break;                        
-                case '*':    // ESC * m nL nH d1 d2 . . . dk print bit-image graphics.
-                    m = 0;
-                    nL = 0;
-                    nH = 0;
-                    state = read_byte_from_printer((char *) &m);
-                    if (state == 0) break;
-                    state = read_byte_from_printer((char *) &nL);
-                    if (state == 0) break;
-                    state = read_byte_from_printer((char *) &nH);
-                    if (state == 0) break;
-                    dotColumns = nH << 8;
-                    dotColumns = dotColumns | nL;
-                    switch (m) {
-                    case 0:
-                        needles = 9;
-                        hPixelWidth = (float) dpih / (float) 60;
-                        vPixelWidth = (float) dpiv / (float) 60;  // Das sind hier 3
-                        // Pixels
-                        _8pin_line_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0);
-                        break;
-                    case 1:
-                        needles = 9;
-                        hPixelWidth = (float) dpih / (float) 120;
-                        vPixelWidth = (float) dpiv / (float) 60;  // Das sind hier 3
-                        // Pixels
-                        _8pin_line_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0);
-                        break;
-                    case 2:
-                        break;
-                    case 3:
-                        needles = 9;
-                        hPixelWidth = (float) dpih / (float) 240;
-                        vPixelWidth = (float) dpiv / (float) 72;  // Das sind hier 3
-                        // Pixels
-                        _8pin_line_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0);
-                        break;
-                    case 4:
-                        break;
-                    case 5:
-                        break;
-                    case 6:  // 90x72 dpi 9 needles
-                        needles = 9;
-                        hPixelWidth = (float) dpih / (float) 90;
-                        vPixelWidth = (float) dpiv / (float) 72;  // Das sind hier 3
-                        // Pixels
-                        _8pin_line_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0);
-                        break;
-                    case 7:  // 144x72 dpi 9 needles
-                        needles = 9;
-                        hPixelWidth = (float) dpih / (float) 144;
-                        vPixelWidth = (float) dpiv / (float) 72;  // Das sind hier 3
-                        // Pixels
-                        _8pin_line_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0);
-                        break;
-                    case 32:  // H-Density 60dpi V-Density 180DPI 24 Dots in one
-                        // row (3bytes)
-                        needles = 24;
-                        hPixelWidth = (float) dpih / (float) 60;
-                        vPixelWidth = (float) dpiv / (float) 180;  // Das sind hier 1.2 
-                        // Pixels
-                        _24pin_line_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0);
-                        break;
-                    case 33:  // mode 33dez 120x180dpi 24 needles
-                        needles = 24;
-                        hPixelWidth = (float) dpih / (float) 120;
-                        vPixelWidth = (float) dpiv / (float) 180;  // Das sind hier 1.2 
-                        // Pixels
-                        _24pin_line_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0);
-                        break;
-                    case 35:  // Resolution not verified k?te auch 240x216 sein
-                        needles = 24;
-                        hPixelWidth = (float) dpih / (float) 240;
-                        vPixelWidth = (float) dpiv / (float) 180;  // Das sind hier 1.2 
-                        // Pixels
-                        _24pin_line_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0);
-                        break;
-                    case 38:  // mode 38dez 90x180 dpi
-                        needles = 24;
-                        hPixelWidth = (float) dpih / (float) 90;
-                        vPixelWidth = (float) dpiv / (float) 180;  // Das sind hier 1.2 
-                        // Pixels
-                        _24pin_line_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0);
-                        break;
-                    case 39:  // mode 39dez 180x180 dpi
-                        needles = 24;
-                        hPixelWidth = (float) dpih / (float) 180;
-                        vPixelWidth = (float) dpiv / (float) 180;  // Das sind hier 1.2 
-                        // Pixels
-                        _24pin_line_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0);
-                        break;
-                    case 40:  // mode 40dez 360x180 dpi
-                        needles = 24;
-                        hPixelWidth = (float) dpih / (float) 360;
-                        vPixelWidth = (float) dpiv / (float) 180;  // Das sind hier 1.2 
-                        // Pixels
-                        _24pin_line_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0);
-                        break;
-                    case 64:
-                        break;
-                    case 65:
-                        break;
-                    case 70:
-                        break;
-                    case 71:
-                        break;
-                    case 72:
-                        break;
-                    case 73:
-                        break;
-                    }
+                    case '*':    // ESC * m nL nH d1 d2 . . . dk print bit-image graphics.
+                        m = 0;
+                        nL = 0;
+                        nH = 0;
+                        state = read_byte_from_printer((char *) &m);
+                        if (state == 0) break;
+                        state = read_byte_from_printer((char *) &nL);
+                        if (state == 0) break;
+                        state = read_byte_from_printer((char *) &nH);
+                        if (state == 0) break;
+                        dotColumns = nH << 8;
+                        dotColumns = dotColumns | nL;
+                        switch (m) {
+                        case 0:  // 60 x 60 dpi 9 needles
+                            needles = 9;
+                            hPixelWidth = (float) dpih / (float) 60;
+                            vPixelWidth = (float) dpiv / (float) 60;  // Das sind hier 3
+                            // Pixels
+                            _8pin_line_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 0);
+                            break;
+                        case 1:  // 120 x 60 dpi 9 needles
+                            needles = 9;
+                            hPixelWidth = (float) dpih / (float) 120;
+                            vPixelWidth = (float) dpiv / (float) 60;    // Using ESC/P2 version (ESC/P was 72)
+                            // Pixels
+                            _8pin_line_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 0);
+                            break;
+                        case 2:
+                            // 120 x 60 dpi 9 needles - not adjacent dot printing.... (not sure what that means)
+                            // Treat as per case 1 for now
+                            needles = 9;
+                            hPixelWidth = (float) dpih / (float) 120;
+                            vPixelWidth = (float) dpiv / (float) 60;    // Using ESC/P2 version (ESC/P was 72)
+                            // Pixels
+                            _8pin_line_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 0);
+                            break;                            
+                            break;
+                        case 3:
+                            // 240 x 60 dpi 9 needles - not adjacent dot printing.... (not sure what that means)
+                            // Treat as per case 1 for now                        
+                            needles = 9;
+                            hPixelWidth = (float) dpih / (float) 240;
+                            vPixelWidth = (float) dpiv / (float) 60;    // Using ESC/P2 version (ESC/P was 72)
+                            // Pixels
+                            _8pin_line_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 0);
+                            break;
+                        case 4:  // 80 x 60 dpi 9 needles
+                            needles = 9;
+                            hPixelWidth = (float) dpih / (float) 80;
+                            vPixelWidth = (float) dpiv / (float) 60;    // Using ESC/P2 version (ESC/P was 72)
+                            // Pixels
+                            _8pin_line_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 0);
+                            break;
+                        case 5:  // Not available in ESC/P
+                            break;
+                        case 6:  // 90 x 60 dpi 9 needles
+                            needles = 9;
+                            hPixelWidth = (float) dpih / (float) 90;
+                            vPixelWidth = (float) dpiv / (float) 60;    // Using ESC/P2 version (ESC/P was 72)
+                            // Pixels
+                            _8pin_line_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 0);
+                            break;
+                        case 7:  // 144 x 72 dpi 9 needles (ESC/P only)
+                            needles = 9;
+                            hPixelWidth = (float) dpih / (float) 144;
+                            vPixelWidth = (float) dpiv / (float) 72;    // Using ESC/P2 version (ESC/P was 72)
+                            // Pixels
+                            _8pin_line_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 0);
+                            break;
+                        case 32:  // 60 x 180 dpi, 24 dots per column - row = 3 bytes
+                            needles = 24;
+                            hPixelWidth = (float) dpih / (float) 60;
+                            vPixelWidth = (float) dpiv / (float) 180;  // Das sind hier 1.2 
+                            // Pixels
+                            _24pin_line_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 0);
+                            break;
+                        case 33:  // 120 x 180 dpi, 24 dots per column - row = 3 bytes
+                            needles = 24;
+                            hPixelWidth = (float) dpih / (float) 120;
+                            vPixelWidth = (float) dpiv / (float) 180;  // Das sind hier 1.2 
+                            // Pixels
+                            _24pin_line_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 0);
+                            break;
+                        case 35:  // Resolution not verified possibly 240x216 sein
+                            needles = 24;
+                            hPixelWidth = (float) dpih / (float) 240;
+                            vPixelWidth = (float) dpiv / (float) 180;  // Das sind hier 1.2 
+                            // Pixels
+                            _24pin_line_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 0);
+                            break;
+                        case 38:  // 90 x 180 dpi, 24 dots per column - row = 3 bytes
+                            needles = 24;
+                            hPixelWidth = (float) dpih / (float) 90;
+                            vPixelWidth = (float) dpiv / (float) 180;  // Das sind hier 1.2 
+                            // Pixels
+                            _24pin_line_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 0);
+                            break;
+                        case 39:  // 180 x 180 dpi, 24 dots per column - row = 3 bytes
+                            needles = 24;
+                            hPixelWidth = (float) dpih / (float) 180;
+                            vPixelWidth = (float) dpiv / (float) 180;  // Das sind hier 1.2 
+                            // Pixels
+                            _24pin_line_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 0);
+                            break;
+                        case 40:  // 360 x 180 dpi, 24 dots per column - row = 3 bytes
+                            needles = 24;
+                            hPixelWidth = (float) dpih / (float) 360;
+                            vPixelWidth = (float) dpiv / (float) 180;  // Das sind hier 1.2 
+                            // Pixels
+                            _24pin_line_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 0);
+                            break;
+                        case 64:  // 60 x 60 dpi, 48 dots per column - row = 6 bytes
+                            needles = 48;
+                            hPixelWidth = (float) dpih / (float) 60;
+                            vPixelWidth = (float) dpiv / (float) 60;  // Das sind hier 1.2 
+                            // Pixels
+                            _48pin_line_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 0);
+                            break;
+                        case 65:  // 120 x 120 dpi, 48 dots per column - row = 6 bytes
+                            needles = 48;
+                            hPixelWidth = (float) dpih / (float) 120;
+                            vPixelWidth = (float) dpiv / (float) 120;  // Das sind hier 1.2 
+                            // Pixels
+                            _48pin_line_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 0);
+                            break;
+                        case 70:  // 90 x 180 dpi, 48 dots per column - row = 6 bytes
+                            needles = 48;
+                            hPixelWidth = (float) dpih / (float) 90;
+                            vPixelWidth = (float) dpiv / (float) 180;  // Das sind hier 1.2 
+                            // Pixels
+                            _48pin_line_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 0);
+                            break;
+                        case 71:  // 180 x 360 dpi, 48 dots per column - row = 6 bytes
+                            needles = 48;
+                            hPixelWidth = (float) dpih / (float) 180;
+                            vPixelWidth = (float) dpiv / (float) 360;  // Das sind hier 1.2 
+                            // Pixels
+                            _48pin_line_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 0);
+                            break;
+                        case 72:  // 360 x 360 dpi, 48 dots per column - row = 6 bytes - no adjacent dot printing
+                            needles = 48;
+                            hPixelWidth = (float) dpih / (float) 360;
+                            vPixelWidth = (float) dpiv / (float) 360;  // Das sind hier 1.2 
+                            // Pixels
+                            _48pin_line_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 0);
+                            break;
+                        case 73:  // 360 x 360 dpi, 48 dots per column - row = 6 bytes
+                            needles = 48;
+                            hPixelWidth = (float) dpih / (float) 360;
+                            vPixelWidth = (float) dpiv / (float) 360;  // Das sind hier 1.2 
+                            // Pixels
+                            _48pin_line_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 0);
+                            break;
+                        }
                 }      // end of switch
             case 15:    // ESC SO Shift Out Select double Width printing (for one line)
                 double_width = 1;
