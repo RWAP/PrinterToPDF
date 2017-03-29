@@ -1285,63 +1285,62 @@ main_loop_for_printing:
                     graphics_mode          =   0;
                     microweave_printing    =   0;
                     break;                       
-                    case '.':    
-                        // Raster printing ESC . c v h m nL nH d1 d2 . . . dk print bit-image graphics.
-                        state = read_byte_from_printer((char *) &c);
-                        if (state == 0) break;
-                        state = read_byte_from_printer((char *) &v);
-                        if (state == 0) break;
-                        state = read_byte_from_printer((char *) &h);
-                        if (state == 0) break;
-                        state = read_byte_from_printer((char *) &m);
-                        if (state == 0) break;
-                        state = read_byte_from_printer((char *) &nL);
-                        if (state == 0) break;
-                        state = read_byte_from_printer((char *) &nH);
-                        if (state == 0) break;
-                        
-                        switch (v) {
-                            case 5:
-                                vPixelWidth = (float) dpiv / (float) 720;
-                                break;
-                            case 10:
-                                vPixelWidth = (float) dpiv / (float) 360;
-                                break;                                
-                            case 20:
-                                vPixelWidth = (float) dpiv / (float) 180;
-                                break;                                
-                        }
-                        switch (h) {
-                            case 5:
-                                hPixelWidth = (float) dpih / (float) 720;
-                                break;
-                            case 10:
-                                hPixelWidth = (float) dpih / (float) 360;
-                                break;                                
-                            case 20:
-                                hPixelWidth = (float) dpih / (float) 180;
-                                break;                                
-                        }
-                        dotColumns = nH << 8;
-                        dotColumns = dotColumns | nL;                        
-                        if ( microweave_printing == 1 ) m = 1; 
-                        switch (c) {
-                        case 0:
-                            // Normal graphics - non-compressed
-                            _line_raster_print(m, dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 0);
+                case '.':    
+                    // Raster printing ESC . c v h m nL nH d1 d2 . . . dk print bit-image graphics.
+                    state = read_byte_from_printer((char *) &c);
+                    if (state == 0) break;
+                    state = read_byte_from_printer((char *) &v);
+                    if (state == 0) break;
+                    state = read_byte_from_printer((char *) &h);
+                    if (state == 0) break;
+                    state = read_byte_from_printer((char *) &m);
+                    if (state == 0) break;
+                    state = read_byte_from_printer((char *) &nL);
+                    if (state == 0) break;
+                    state = read_byte_from_printer((char *) &nH);
+                    if (state == 0) break;
+                    
+                    switch (v) {
+                        case 5:
+                            vPixelWidth = (float) dpiv / (float) 720;
                             break;
-                        case 1:
-                            _line_raster_print(m, dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
+                        case 10:
+                            vPixelWidth = (float) dpiv / (float) 360;
+                            break;                                
+                        case 20:
+                            vPixelWidth = (float) dpiv / (float) 180;
+                            break;                                
+                    }
+                    switch (h) {
+                        case 5:
+                            hPixelWidth = (float) dpih / (float) 720;
                             break;
-                        case 2:
-                            // TIFF compressed mode
-                            break;
-                        case 3:
-                            // Delta Row compressed mode
-                            break;
-                        }
+                        case 10:
+                            hPixelWidth = (float) dpih / (float) 360;
+                            break;                                
+                        case 20:
+                            hPixelWidth = (float) dpih / (float) 180;
+                            break;                                
+                    }
+                    dotColumns = nH << 8;
+                    dotColumns = dotColumns | nL;                        
+                    if ( microweave_printing == 1 ) m = 1; 
+                    switch (c) {
+                    case 0:
+                        // Normal graphics - non-compressed
+                        _line_raster_print(m, dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 0);
                         break;
-
+                    case 1:
+                        _line_raster_print(m, dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
+                        break;
+                    case 2:
+                        // TIFF compressed mode
+                        break;
+                    case 3:
+                        // Delta Row compressed mode
+                        break;
+                    }
+                    break;
                 case '+':    // Set n/360-inch line spacing ESC + n
                     state = read_byte_from_printer((char *) &xd);
                     ypos = ypos + (int) xd *360 / 180; // Is this correct SASCHA?
@@ -1711,10 +1710,6 @@ main_loop_for_printing:
                 case 'g':    // ESC g Select 10.5-point, 15-cpi
                     cpi = 15;
                     pitch=15;
-                    break;
-                case 20:    // ESC SP Set intercharacter space
-                    // Not yet implemented
-                    state = read_byte_from_printer((char *) &nL);
                     break;
                 case 'l':    // ESC l m set the left margin m in characters
                     state = read_byte_from_printer((char *) &xd);
@@ -2381,199 +2376,230 @@ main_loop_for_printing:
                     // ESC r n Set printing colour (n=0-7) 
                     // (Black, Magenta, Cyan, Violet, Yellow, Red, Green, White)
                     state = read_byte_from_printer((char *) &printColour);
-                    break;                    
-                case 25:    // ESC EM n Control paper loading / ejecting (do nothing)
+                    break;
+                case 10: // ESC LF
+                    // Reverse line feed - Star NL-10
+                    // 01.01.2014 reverse 31/216 inches this may be wrong or adapted .....
+                    // 27.09.2014 maybe next line is to shift down 8/72 inches to begin a new line
+                    // to avoid overwritings if needles are having 72dpi mechanical resolution
+                    // dpiv=216
+                    // vPixelWidth=((float)dpiv/(float)cpi*2)/16; //CPI * 2 weil printcharx
+                    // ebenfalls cpi * 2 nimmt
+                    // ypos=ypos+vPixelWidth*16; //24=8*216/72
+                    // 07.01.2015 wieder auf 24 gesetzt da hier die besten ergebnisse (was
+                    // an der alten formel falschist I dunno)
+                    // changed from 24 to 30 20.09.2015
+                  
+                    ypos = ypos - (float) 30*((float)pitch/(float)cpi);  // Those are 8 Pixels forward concerning the
+                    // printheads 72dpi resolution. 
+                    // Cause the mechanics has a resolution of 216 dpi (which is 3 times
+                    // higher) 8x3=24 steps/pixels has to be done
+                    xpos = marginleftp;
+                    double_width = 0;    
+                    break;
+                case 12: // ESC FF
+                    // Reverse form feed - Star NL-10
+                    ypos = 0;  // just put it in an out of area position
+                    xpos = marginleftp;                      
+                    break;                        
+                case 20:    // ESC SP Set intercharacter space
+                    // Not yet implemented
                     state = read_byte_from_printer((char *) &nL);
                     break;                        
-                    case '*':    // ESC * m nL nH d1 d2 . . . dk print bit-image graphics.
-                        m = 0;
-                        nL = 0;
-                        nH = 0;
-                        state = read_byte_from_printer((char *) &m);
-                        if (state == 0) break;
-                        state = read_byte_from_printer((char *) &nL);
-                        if (state == 0) break;
-                        state = read_byte_from_printer((char *) &nH);
-                        if (state == 0) break;
-                        dotColumns = nH << 8;
-                        dotColumns = dotColumns | nL;
-                        switch (m) {
-                        case 0:  // 60 x 60 dpi 9 needles
-                            needles = 9;
-                            hPixelWidth = (float) dpih / (float) 60;
-                            if (escp2) {
-                                vPixelWidth = (float) dpiv / (float) 60;
-                                _8pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
-                            } else {
-                                vPixelWidth = (float) dpiv / (float) 72;
-                                _8pin_line_bitmap_print_72dpi(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
-                            }                            
-                            break;
-                        case 1:  // 120 x 60 dpi 9 needles
-                            needles = 9;
-                            hPixelWidth = (float) dpih / (float) 120;
-                            if (escp2) {
-                                vPixelWidth = (float) dpiv / (float) 60;
-                                _8pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
-                            } else {
-                                vPixelWidth = (float) dpiv / (float) 72;
-                                _8pin_line_bitmap_print_72dpi(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
-                            }                            
-                            break;
-                        case 2:
-                            // 120 x 60 dpi 9 needles - not adjacent dot printing
-                            needles = 9;
-                            hPixelWidth = (float) dpih / (float) 120;
-                            if (escp2) {
-                                vPixelWidth = (float) dpiv / (float) 60;
-                                _8pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 0);
-                            } else {
-                                vPixelWidth = (float) dpiv / (float) 72;
-                                _8pin_line_bitmap_print_72dpi(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 0);
-                            }                            
-                            break;
-                        case 3:
-                            // 240 x 60 dpi 9 needles - not adjacent dot printing 
-                            needles = 9;
-                            hPixelWidth = (float) dpih / (float) 240;
-                            if (escp2) {
-                                vPixelWidth = (float) dpiv / (float) 60;
-                                _8pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 0);
-                            } else {
-                                vPixelWidth = (float) dpiv / (float) 72;
-                                _8pin_line_bitmap_print_72dpi(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 0);
-                            } 
-                            break;
-                        case 4:  // 80 x 60 dpi 9 needles
-                            needles = 9;
-                            hPixelWidth = (float) dpih / (float) 80;
-                            if (escp2) {
-                                vPixelWidth = (float) dpiv / (float) 60;
-                                _8pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
-                            } else {
-                                vPixelWidth = (float) dpiv / (float) 72;
-                                _8pin_line_bitmap_print_72dpi(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
-                            } 
-                            break;
-                        case 5:  // 72 x 72 dpi 9 needles - unused in ESC/P2
-                            needles = 9;
-                            hPixelWidth = (float) dpih / (float) 72;
-                            if (escp2) {
-                                vPixelWidth = (float) dpiv / (float) 60;
-                                _8pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
-                            } else {
-                                vPixelWidth = (float) dpiv / (float) 72;
-                                _8pin_line_bitmap_print_72dpi(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
-                            } 
-                            break;
-                        case 6:  // 90 x 60 dpi 9 needles
-                            needles = 9;
-                            hPixelWidth = (float) dpih / (float) 90;
-                            if (escp2) {
-                                vPixelWidth = (float) dpiv / (float) 60;
-                                _8pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
-                            } else {
-                                vPixelWidth = (float) dpiv / (float) 72;
-                                _8pin_line_bitmap_print_72dpi(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
-                            } 
-                            break;
-                        case 7:  // 144 x 72 dpi 9 needles (ESC/P only)
-                            needles = 9;
-                            hPixelWidth = (float) dpih / (float) 144;
-                            if (escp2) {
-                                vPixelWidth = (float) dpiv / (float) 60;
-                                _8pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
-                            } else {
-                                vPixelWidth = (float) dpiv / (float) 72;
-                                _8pin_line_bitmap_print_72dpi(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
-                            } 
-                            break;
-                        case 32:  // 60 x 180 dpi, 24 dots per column - row = 3 bytes
-                            needles = 24;
-                            hPixelWidth = (float) dpih / (float) 60;
-                            vPixelWidth = (float) dpiv / (float) 180;  // Das sind hier 1.2 
-                            // Pixels
-                            _24pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
-                            break;
-                        case 33:  // 120 x 180 dpi, 24 dots per column - row = 3 bytes
-                            needles = 24;
-                            hPixelWidth = (float) dpih / (float) 120;
-                            vPixelWidth = (float) dpiv / (float) 180;  // Das sind hier 1.2 
-                            // Pixels
-                            _24pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
-                            break;
-                        case 35:  // Resolution not verified possibly 240x216 sein
-                            needles = 24;
-                            hPixelWidth = (float) dpih / (float) 240;
-                            vPixelWidth = (float) dpiv / (float) 180;  // Das sind hier 1.2 
-                            // Pixels
-                            _24pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
-                            break;
-                        case 38:  // 90 x 180 dpi, 24 dots per column - row = 3 bytes
-                            needles = 24;
-                            hPixelWidth = (float) dpih / (float) 90;
-                            vPixelWidth = (float) dpiv / (float) 180;  // Das sind hier 1.2 
-                            // Pixels
-                            _24pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
-                            break;
-                        case 39:  // 180 x 180 dpi, 24 dots per column - row = 3 bytes
-                            needles = 24;
-                            hPixelWidth = (float) dpih / (float) 180;
-                            vPixelWidth = (float) dpiv / (float) 180;  // Das sind hier 1.2 
-                            // Pixels
-                            _24pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
-                            break;
-                        case 40:  // 360 x 180 dpi, 24 dots per column - row = 3 bytes - not adjacent dot
-                            needles = 24;
-                            hPixelWidth = (float) dpih / (float) 360;
-                            vPixelWidth = (float) dpiv / (float) 180;  // Das sind hier 1.2 
-                            // Pixels
-                            _24pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 0);
-                            break;
-                        case 64:  // 60 x 60 dpi, 48 dots per column - row = 6 bytes
-                            needles = 48;
-                            hPixelWidth = (float) dpih / (float) 60;
-                            vPixelWidth = (float) dpiv / (float) 60;  // Das sind hier 1.2 
-                            // Pixels
-                            _48pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
-                            break;
-                        case 65:  // 120 x 120 dpi, 48 dots per column - row = 6 bytes
-                            needles = 48;
-                            hPixelWidth = (float) dpih / (float) 120;
-                            vPixelWidth = (float) dpiv / (float) 120;  // Das sind hier 1.2 
-                            // Pixels
-                            _48pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
-                            break;
-                        case 70:  // 90 x 180 dpi, 48 dots per column - row = 6 bytes
-                            needles = 48;
-                            hPixelWidth = (float) dpih / (float) 90;
-                            vPixelWidth = (float) dpiv / (float) 180;  // Das sind hier 1.2 
-                            // Pixels
-                            _48pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
-                            break;
-                        case 71:  // 180 x 360 dpi, 48 dots per column - row = 6 bytes
-                            needles = 48;
-                            hPixelWidth = (float) dpih / (float) 180;
-                            vPixelWidth = (float) dpiv / (float) 360;  // Das sind hier 1.2 
-                            // Pixels
-                            _48pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
-                            break;
-                        case 72:  // 360 x 360 dpi, 48 dots per column - row = 6 bytes - no adjacent dot printing
-                            needles = 48;
-                            hPixelWidth = (float) dpih / (float) 360;
-                            vPixelWidth = (float) dpiv / (float) 360;  // Das sind hier 1.2 
-                            // Pixels
-                            _48pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 0);
-                            break;
-                        case 73:  // 360 x 360 dpi, 48 dots per column - row = 6 bytes
-                            needles = 48;
-                            hPixelWidth = (float) dpih / (float) 360;
-                            vPixelWidth = (float) dpiv / (float) 360;  // Das sind hier 1.2 
-                            // Pixels
-                            _48pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
-                            break;                        }
-                }      // end of switch
-            case 15:    // ESC SO Shift Out Select double Width printing (for one line)
+                case 25:    // ESC EM n Control paper loading / ejecting (do nothing)
+                    state = read_byte_from_printer((char *) &nL);
+                    break;                       
+                case '*':    // ESC * m nL nH d1 d2 . . . dk print bit-image graphics.
+                    m = 0;
+                    nL = 0;
+                    nH = 0;
+                    state = read_byte_from_printer((char *) &m);
+                    if (state == 0) break;
+                    state = read_byte_from_printer((char *) &nL);
+                    if (state == 0) break;
+                    state = read_byte_from_printer((char *) &nH);
+                    if (state == 0) break;
+                    dotColumns = nH << 8;
+                    dotColumns = dotColumns | nL;
+                    switch (m) {
+                    case 0:  // 60 x 60 dpi 9 needles
+                        needles = 9;
+                        hPixelWidth = (float) dpih / (float) 60;
+                        if (escp2) {
+                            vPixelWidth = (float) dpiv / (float) 60;
+                            _8pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
+                        } else {
+                            vPixelWidth = (float) dpiv / (float) 72;
+                            _8pin_line_bitmap_print_72dpi(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
+                        }                            
+                        break;
+                    case 1:  // 120 x 60 dpi 9 needles
+                        needles = 9;
+                        hPixelWidth = (float) dpih / (float) 120;
+                        if (escp2) {
+                            vPixelWidth = (float) dpiv / (float) 60;
+                            _8pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
+                        } else {
+                            vPixelWidth = (float) dpiv / (float) 72;
+                            _8pin_line_bitmap_print_72dpi(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
+                        }                            
+                        break;
+                    case 2:
+                        // 120 x 60 dpi 9 needles - not adjacent dot printing
+                        needles = 9;
+                        hPixelWidth = (float) dpih / (float) 120;
+                        if (escp2) {
+                            vPixelWidth = (float) dpiv / (float) 60;
+                            _8pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 0);
+                        } else {
+                            vPixelWidth = (float) dpiv / (float) 72;
+                            _8pin_line_bitmap_print_72dpi(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 0);
+                        }                            
+                        break;
+                    case 3:
+                        // 240 x 60 dpi 9 needles - not adjacent dot printing 
+                        needles = 9;
+                        hPixelWidth = (float) dpih / (float) 240;
+                        if (escp2) {
+                            vPixelWidth = (float) dpiv / (float) 60;
+                            _8pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 0);
+                        } else {
+                            vPixelWidth = (float) dpiv / (float) 72;
+                            _8pin_line_bitmap_print_72dpi(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 0);
+                        } 
+                        break;
+                    case 4:  // 80 x 60 dpi 9 needles
+                        needles = 9;
+                        hPixelWidth = (float) dpih / (float) 80;
+                        if (escp2) {
+                            vPixelWidth = (float) dpiv / (float) 60;
+                            _8pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
+                        } else {
+                            vPixelWidth = (float) dpiv / (float) 72;
+                            _8pin_line_bitmap_print_72dpi(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
+                        } 
+                        break;
+                    case 5:  // 72 x 72 dpi 9 needles - unused in ESC/P2
+                        needles = 9;
+                        hPixelWidth = (float) dpih / (float) 72;
+                        if (escp2) {
+                            vPixelWidth = (float) dpiv / (float) 60;
+                            _8pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
+                        } else {
+                            vPixelWidth = (float) dpiv / (float) 72;
+                            _8pin_line_bitmap_print_72dpi(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
+                        } 
+                        break;
+                    case 6:  // 90 x 60 dpi 9 needles
+                        needles = 9;
+                        hPixelWidth = (float) dpih / (float) 90;
+                        if (escp2) {
+                            vPixelWidth = (float) dpiv / (float) 60;
+                            _8pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
+                        } else {
+                            vPixelWidth = (float) dpiv / (float) 72;
+                            _8pin_line_bitmap_print_72dpi(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
+                        } 
+                        break;
+                    case 7:  // 144 x 72 dpi 9 needles (ESC/P only)
+                        needles = 9;
+                        hPixelWidth = (float) dpih / (float) 144;
+                        if (escp2) {
+                            vPixelWidth = (float) dpiv / (float) 60;
+                            _8pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
+                        } else {
+                            vPixelWidth = (float) dpiv / (float) 72;
+                            _8pin_line_bitmap_print_72dpi(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
+                        } 
+                        break;
+                    case 32:  // 60 x 180 dpi, 24 dots per column - row = 3 bytes
+                        needles = 24;
+                        hPixelWidth = (float) dpih / (float) 60;
+                        vPixelWidth = (float) dpiv / (float) 180;  // Das sind hier 1.2 
+                        // Pixels
+                        _24pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
+                        break;
+                    case 33:  // 120 x 180 dpi, 24 dots per column - row = 3 bytes
+                        needles = 24;
+                        hPixelWidth = (float) dpih / (float) 120;
+                        vPixelWidth = (float) dpiv / (float) 180;  // Das sind hier 1.2 
+                        // Pixels
+                        _24pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
+                        break;
+                    case 35:  // Resolution not verified possibly 240x216 sein
+                        needles = 24;
+                        hPixelWidth = (float) dpih / (float) 240;
+                        vPixelWidth = (float) dpiv / (float) 180;  // Das sind hier 1.2 
+                        // Pixels
+                        _24pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
+                        break;
+                    case 38:  // 90 x 180 dpi, 24 dots per column - row = 3 bytes
+                        needles = 24;
+                        hPixelWidth = (float) dpih / (float) 90;
+                        vPixelWidth = (float) dpiv / (float) 180;  // Das sind hier 1.2 
+                        // Pixels
+                        _24pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
+                        break;
+                    case 39:  // 180 x 180 dpi, 24 dots per column - row = 3 bytes
+                        needles = 24;
+                        hPixelWidth = (float) dpih / (float) 180;
+                        vPixelWidth = (float) dpiv / (float) 180;  // Das sind hier 1.2 
+                        // Pixels
+                        _24pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
+                        break;
+                    case 40:  // 360 x 180 dpi, 24 dots per column - row = 3 bytes - not adjacent dot
+                        needles = 24;
+                        hPixelWidth = (float) dpih / (float) 360;
+                        vPixelWidth = (float) dpiv / (float) 180;  // Das sind hier 1.2 
+                        // Pixels
+                        _24pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 0);
+                        break;
+                    case 64:  // 60 x 60 dpi, 48 dots per column - row = 6 bytes
+                        needles = 48;
+                        hPixelWidth = (float) dpih / (float) 60;
+                        vPixelWidth = (float) dpiv / (float) 60;  // Das sind hier 1.2 
+                        // Pixels
+                        _48pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
+                        break;
+                    case 65:  // 120 x 120 dpi, 48 dots per column - row = 6 bytes
+                        needles = 48;
+                        hPixelWidth = (float) dpih / (float) 120;
+                        vPixelWidth = (float) dpiv / (float) 120;  // Das sind hier 1.2 
+                        // Pixels
+                        _48pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
+                        break;
+                    case 70:  // 90 x 180 dpi, 48 dots per column - row = 6 bytes
+                        needles = 48;
+                        hPixelWidth = (float) dpih / (float) 90;
+                        vPixelWidth = (float) dpiv / (float) 180;  // Das sind hier 1.2 
+                        // Pixels
+                        _48pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
+                        break;
+                    case 71:  // 180 x 360 dpi, 48 dots per column - row = 6 bytes
+                        needles = 48;
+                        hPixelWidth = (float) dpih / (float) 180;
+                        vPixelWidth = (float) dpiv / (float) 360;  // Das sind hier 1.2 
+                        // Pixels
+                        _48pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
+                        break;
+                    case 72:  // 360 x 360 dpi, 48 dots per column - row = 6 bytes - no adjacent dot printing
+                        needles = 48;
+                        hPixelWidth = (float) dpih / (float) 360;
+                        vPixelWidth = (float) dpiv / (float) 360;  // Das sind hier 1.2 
+                        // Pixels
+                        _48pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 0);
+                        break;
+                    case 73:  // 360 x 360 dpi, 48 dots per column - row = 6 bytes
+                        needles = 48;
+                        hPixelWidth = (float) dpih / (float) 360;
+                        vPixelWidth = (float) dpiv / (float) 360;  // Das sind hier 1.2 
+                        // Pixels
+                        _48pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
+                        break;
+                    }
+                } // end of switch
+                break;
+            case 14:    // ESC SO Shift Out Select double Width printing (for one line)
                 double_width = 1;
                 break;                    
             case 15:    // ESC SI Shift In Condensed printing on
@@ -2581,8 +2607,8 @@ main_loop_for_printing:
                 if (pitch==12) cpi=20;
                 // Add for proportional font = 1/2 width
                 break;
-            }   // End of ESC branch
-        }
+            }
+        }   // End of ESC branch
         if (sdlon) SDL_UpdateRect(display, 0, 0, 0, 0);
     }   
 
