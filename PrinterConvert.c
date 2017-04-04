@@ -340,6 +340,7 @@ void putpixel(SDL_Surface * surface, int x, int y, Uint32 pixel)
 
 int cpi = 12;
 int pitch = 12; //Same like cpi but will retain its value when condensed printing is switched on
+int line_spacing = (int) 180 * 1 / 6;       // normally 1/6 inch line spacing - (float) 30*((float)pitch/(float)cpi);
 int marginleft = 0, marginright = 99;       // in characters
 int marginleftp = 0, marginrightp = pageSetWidth;   // in pixels
 int dpih = 240, dpiv = 216;                 // resolution in dpi
@@ -357,10 +358,15 @@ unsigned char bL, bH;                       // extra parameters bottom margin, l
 unsigned char d1, d2, d3;
 unsigned char a0, a1, a2;
 int dotColumns;                             // number of dot columns for bit images
-unsigned char hTabulators[35];              // List of tabulators
-unsigned char vTabulators[20];              // List of vertical tabulators
+
+// Tabs
+int hTabulators[35];                        // List of tabulators
+int vTabulators[20];                        // List of vertical tabulators
+int vTabulatorsSet = 0;                     // Used by VT command to check if any vertical tabs have been set since printer reset
+int vTabulatorsCancelled = 0;               // Used by VT command to check if all vertical tabs have been cancelled
 int curHtab = 0;                            // next active horizontal tab
 int curVtab = 0;                            // next active vertical tab
+
 float hPixelWidth, vPixelWidth;
 FILE *f;
 SDL_Surface *display;
@@ -559,6 +565,7 @@ _24pin_line_bitmap_print(int dotColumns, float hPixelWidth, float vPixelWidth,
     // bitmap graphics printing - prints bytes vertically
     int opr, fByte, xByte, j;
     unsigned int xd, repeater;
+    double ypos2;
     test_for_new_paper();
     for (opr = 0; opr < dotColumns; opr++) {
         for (fByte = 0; fByte < 4; fByte++) {
@@ -597,6 +604,7 @@ _48pin_line_bitmap_print(int dotColumns, float hPixelWidth, float vPixelWidth,
     // bitmap graphics printing - prints bytes vertically
     int opr, fByte, xByte, j;
     unsigned int xd, repeater;
+    double ypos2;
     test_for_new_paper();
     for (opr = 0; opr < dotColumns; opr++) {
         for (fByte = 0; fByte < 7; fByte++) {
@@ -633,8 +641,9 @@ _line_raster_print(int bandHeight, int dotColumns, float hPixelWidth, float vPix
      float xzoom, float yzoom, int rleEncoded)
 {
     // Data is sent in horizontal bands of up to dotColumns high
-    int opr, fByte, xByte, j band;
+    int opr, fByte, xByte, j, band;
     unsigned int xd, repeater;
+    double ypos2 = ypos;
     test_for_new_paper();
     for (band = 0; band < bandHeight, band++) {
         if (rleEncoded) {
@@ -660,7 +669,7 @@ _line_raster_print(int bandHeight, int dotColumns, float hPixelWidth, float vPix
                             if (((tvx.tv_sec - startzeit) >= timeout) && (state == 0)) goto raus_rasterp;
                         }
                         for (xByte = 0; xByte < 8; xByte++) {
-                            if (xd & 128) putpixel(display, xpos, ypos, 0x0000000);
+                            if (xd & 128) putpixel(display, xpos, ypos2, 0x0000000);
                             xd = xd << 1;
                             xpos = xpos + hPixelWidth;
                         }
@@ -680,7 +689,7 @@ _line_raster_print(int bandHeight, int dotColumns, float hPixelWidth, float vPix
                     }
                     for (j = 0; j < repeater; j++) {
                         for (xByte = 0; xByte < 8; xByte++) {
-                            if (xd & 128) putpixel(display, xpos, ypos, 0x0000000);
+                            if (xd & 128) putpixel(display, xpos, ypos2, 0x0000000);
                             xd = xd << 1;
                             xpos = xpos + hPixelWidth;
                         }
@@ -700,14 +709,14 @@ _line_raster_print(int bandHeight, int dotColumns, float hPixelWidth, float vPix
                     if (((tvx.tv_sec - startzeit) >= timeout) && (state == 0)) goto raus_rasterp;
                 }
                 for (xByte = 0; xByte < 8; xByte++) {
-                    if (xd & 128) putpixel(display, xpos, ypos, 0x0000000);
+                    if (xd & 128) putpixel(display, xpos, ypos2, 0x0000000);
                     xd = xd << 1;
                     xpos = xpos + hPixelWidth;
                 }
                 // SDL_UpdateRect(display, 0, 0, 0, 0);
             }
         }
-        ypos = ypos + vPixelWidth;
+        ypos2 = ypos2 + vPixelWidth;
     }
   raus_rasterp:
     return;
@@ -1225,21 +1234,7 @@ main_loop_for_printing:
             // Epson ESC/P2 graphics mode - limited commands:
             switch (xd) {
             case 10:    // lf (0x0a)              
-                // 01.01.2014 forward 31/216 inches this may be wrong or adapted .....
-                // 27.09.2014 maybe next line is to shift down 8/72 inches to begin a new line
-                // to avoid overwritings if needles are having 72dpi mechanical resolution
-                // dpiv=216
-                // vPixelWidth=((float)dpiv/(float)cpi*2)/16; //CPI * 2 weil printcharx
-                // ebenfalls cpi * 2 nimmt
-                // ypos=ypos+vPixelWidth*16; //24=8*216/72
-                // 07.01.2015 wieder auf 24 gesetzt da hier die besten ergebnisse (was
-                // an der alten formel falschist I dunno)
-                // changed from 24 to 30 20.09.2015
-              
-                ypos = ypos + (float) 30*((float)pitch/(float)cpi);  // Those are 8 Pixels forward concerning the
-                // printheads 72dpi resolution. 
-                // Cause the mechanics has a resolution of 216 dpi (which is 3 times
-                // higher) 8x3=24 steps/pixels has to be done
+                ypos = ypos + line_spacing;
                 xpos = marginleftp;
                 double_width = 0;
                 break;
@@ -1263,6 +1258,7 @@ main_loop_for_printing:
                 case '@':    // ESC @ Initialize
                     cpi                    =  12;
                     pitch                  =  12;
+                    line_spacing           = (int) 180 * 1 / 6; // normally 1/6 inch line spacing
                     dpih                   = 240; 
                     dpiv                   = 216;
                     printColour            =   0;
@@ -1284,6 +1280,8 @@ main_loop_for_printing:
                     print_uppercontrolcodes =  0;
                     graphics_mode          =   0;
                     microweave_printing    =   0;
+                    vTabulatorsSet         =   0;
+                    vTabulatorsCancelled   =   0;                    
                     break;                       
                 case '.':    
                     // Raster printing ESC . c v h m nL nH d1 d2 . . . dk print bit-image graphics.
@@ -1343,8 +1341,8 @@ main_loop_for_printing:
                     break;
                 case '+':    // Set n/360-inch line spacing ESC + n
                     state = read_byte_from_printer((char *) &xd);
-                    ypos = ypos + (int) xd *360 / 180; // Is this correct SASCHA?
-                    break;
+                    line_spacing = (int) 180 * xd / 360;
+                    break; 
                 case '(':    
                     state = read_byte_from_printer((char *) &nL);
                     switch (nL) {
@@ -1480,12 +1478,17 @@ main_loop_for_printing:
             case 9:    // TAB
                 if (print_controlcodes) {
                     print_character(xd);
-                } else {                
-                    if (hTabulators[curHtab] == 0) curHtab = 0; // No more tab marks
-                    if (hTabulators[0] > 0) {
-                        // forward numbercount of tabulator[curHtab ]characters to the right 
-                        xpos = (dpih * hTabulators[curHtab]) / cpi;
-                        curHtab++;
+                } else {
+                    curHtab = -1;
+                    for (i = 0; i < 32; i++) {
+                        if (marginleftp + hTabulators[i] <= xpos) curHtab = i;
+                    }
+                    curHtab++;                    
+                    if (curHtab > 31 || hTabulators[curHtab] == 0) {
+                        // No more tab marks
+                    } else if (hTabulators[curHtab] > 0 && hTabulators[curHtab] <= marginrightp) {
+                        // forward to next tab position
+                        xpos = marginleftp + hTabulators[curHtab];
                     }
                 }
                 break;
@@ -1503,25 +1506,54 @@ main_loop_for_printing:
                     // 07.01.2015 wieder auf 24 gesetzt da hier die besten ergebnisse (was
                     // an der alten formel falschist I dunno)
                     // changed from 24 to 30 20.09.2015
-                  
-                    ypos = ypos + (float) 30*((float)pitch/(float)cpi);  // Those are 8 Pixels forward concerning the
-                    // printheads 72dpi resolution. 
+                    // Those are 8 Pixels forward concerning the printheads 72dpi resolution. 
                     // Cause the mechanics has a resolution of 216 dpi (which is 3 times
                     // higher) 8x3=24 steps/pixels has to be done
+                    ypos = ypos + line_spacing;
                     xpos = marginleftp;
                     double_width = 0;
+                    break;
                 }
                 break;
             case 11:    // VT vertical tab (same like 10)
                 if (print_controlcodes) {
                     print_character(xd);
-                } else {                
-                    //changed from 24 to 30 20.09.2015
-                    // To be re-written to take account of vertical tab stops - TO DO RWAP
-                    ypos = ypos + 30;
+                } else {
                     xpos = marginleftp;
-                    // if all tabs cancelled with ESC B NUL, then this acts as CR only but does not cancel double width
-                    double_width = 0; // ONLY if all tabs have not been cancelled
+                    double_width = 0;
+                    curVtab = -1;
+                    for (i = 0; i < 16; i++) {
+                        if (vTabulators[i] <= ypos) curVtab = i;
+                    }
+                    curVtab++;
+                    if (curVtab > 15 || vTabulators[curVtab] == 0) {
+                        // If all tabs cancelled then acts as a CR
+                        // If no tabs have been set since turn on / ESC @ command, then acts like LF
+                        // If tabs have been set but no more vertical tabs, then acts like FF
+                        if (vTabulatorsCancelled) {
+                            // CR
+                            xpos = marginleftp;
+                        } else if (vTabulatorsSet) {
+                            // FF
+                            ypos = pageSetHeight;  // just put it in an out of area position
+                            test_for_new_paper();
+                            i = 0;
+                            double_width = 0;                                
+                        } else {
+                            // LF
+                            curVtab = 0; // No more tab marks
+                            ypos = ypos + line_spacing;
+                        }
+                    } else if (vTabulators[curVtab] > 0) {
+                        // forward to next tab position
+                        // ignore IF print position would be moved to inside the bottom margin
+                        ypos2 = ypos;
+                        ypos = vTabulators[curVtab];
+                        if ((ypos > (pageSetHeight - 17 * vPixelWidth)) {
+                            // Do nothing
+                            ypos = ypos2;
+                        }                            
+                    }
                 }
                 break;
             case 12:    // form feed (neues blatt) 
@@ -1650,6 +1682,7 @@ main_loop_for_printing:
                 case '@':    // ESC @ Initialize
                     cpi                    =  12;
                     pitch                  =  12;
+                    line_spacing           = (int) 180 * 1 / 6; // normally 1/6 inch line spacing
                     dpih                   = 240; 
                     dpiv                   = 216;
                     printColour            =   0;
@@ -1669,34 +1702,33 @@ main_loop_for_printing:
                     shadow_printing        =   0;
                     print_controlcodes     =   0;
                     print_uppercontrolcodes =  0;
+                    vTabulatorsSet         =   0;
+                    vTabulatorsCancelled   =   0;                    
                     break;                        
                 case '0':    //Select 1/8 inch line spacing 
-                    ypos = ypos + (int) 1 *8 / 180; // Is this correct SASCHA?
+                    line_spacing = (int) 180 * 1 / 8;
                     break;
                 case '1':    //Select 7/72 inch line spacing 
-                    ypos = ypos + (int) 7 *72 / 180; // Is this correct SASCHA?
+                    line_spacing = (int) 180 * 7 / 72;
                     break;
                 case '2':    // Select 1/6-inch line spacing
-                    ypos = ypos + (int) 1 *6 / 180; // Is this correct SASCHA?
+                    line_spacing = (int) 180 * 1 / 6;
                     break;
-                case '3':    // Set n/216-inch line spacing ESC 3 n
+                case '3':    // Set n/180-inch line spacing ESC 3 n
                     state = read_byte_from_printer((char *) &xd);
-                    ypos = ypos + (int) xd *216 / 180;
-                    // SASCHA - surely this only affects the current line - what about all lines below?
+                    line_spacing = (int) 180 * xd / 180;
                     break;                        
                 case '+':    // Set n/360-inch line spacing ESC + n
                     state = read_byte_from_printer((char *) &xd);
-                    ypos = ypos + (int) xd *360 / 180; // Is this correct SASCHA?
-                    break;
+                    line_spacing = (int) 180 * xd / 360;
+                    break;                        
                 case 'A':    // ESC A n Set n/60 inches or
                     // n/72 inches line spacing (24 or 9 pin printer)
                     state = read_byte_from_printer((char *) &xd);
                     if (needles == 9) {
-                        // go xp/60
-                        ypos = ypos + (int) xd *60 / 180; // Is this correct SASCHA?
+                        line_spacing = (int) 180 * xd / 60;
                     } else {  // needles must be 24 here
-                        // go xp/72
-                        ypos = ypos + (int) xd *72 / 180; // Is this correct SASCHA?
+                        line_spacing = (int) 180 * xd / 72;
                     }
                     break;
                 case 'M':    // ESC M Select 10.5-point, 12-cpi
@@ -1727,31 +1759,54 @@ main_loop_for_printing:
                         // maximum 32 tabs are allowed last
                         // tab is always 0 to finish list
                         state = read_byte_from_printer((char *) &xd);
+                        xd = (dpih / cpi) * xd; // each tab is specified in number of characters in current character pitch
+                        if (i > 0 && xd < hTabulators[i-1]) {
+                            // Value less than previous tab setting ends the settings like NUL
+                            xd = 0;
+                        }
                         hTabulators[i] = xd;
                         i++;
                     }
+                    if (i == 0 && xd == 0) {
+                        // ESC D NUL cancels all horizontal tabs
+                        for (i = 0; i < 32; i++) hTabulators[i] = 0;
+                    }                        
                     break;
                 case 'B':    // ESC B n1,n2,n3 .... nk NUL, vertical tab
                     // positions n1..nk
                     i = 0;
+                    vTabulatorsSet = 1; 
                     while ((xd != 0) && (i < 16)) {
                         // maximum 16 tabs are allowed last
                         // tab is always 0 to finish list
                         state = read_byte_from_printer((char *) &xd);
-                        vTabulators[i] = xd;
+                        vTabulators[i] = xd * line_spacing;
                         i++;
                     }
+                    if (i == 0 && xd == 0) {
+                        // ESC B NUL cancels all vertical tabs
+                        for (i = 0; i < 16; i++) vTabulators[i] = 0;
+                        vTabulatorsCancelled = 1;
+                    }
                     break;                        
-                case 'b':    // ESC b n1,n2,n3 .... nk NUL, vertical tab input VFU channels
+                case 'b':    // ESC b m, n1,n2,n3 .... nk NUL, vertical tab input VFU channels
                     // positions n1..nk
                     i = 0;
+                    vTabulatorsSet = 1;
+                    state = read_byte_from_printer((char *) &m);
                     while ((xd != 0) && (i < 8)) {
                         // maximum 8 tabs are allowed last
                         // tab is always 0 to finish list
+                        // Not yet implemented
                         state = read_byte_from_printer((char *) &xd);
-                        // vTabulators[i] = xd;
+                        // vTabulators[i] = xd * line_spacing;
                         i++;
                     }
+                    if (i == 0 && xd == 0) {
+                        // ESC B NUL cancels all vertical tabs
+                        for (i = 0; i < 16; i++) vTabulators[i] = 0;
+                        vTabulatorsCancelled = 1;
+                    }                        
                     break;
                 case '/':    // ESC / m, set vertical tab channel
                     // positions n1..nk
@@ -2178,12 +2233,13 @@ main_loop_for_printing:
                         state = read_byte_from_printer((char *) &m); 
                         if ((nL == 1) && (nH == 0) && ((m == 1) || (m == 49)) ) {
                             graphics_mode = 1;
-                            // clear all user defined graphics
-                            // TO BE WRITTEN
+                            // clear all user defined graphics - To be implemented
                             // Clear tab marks
                             for (i = 0; i < 32; i++) hTabulators[i] = 0;
                             for (i = 0; i < 16; i++) vTabulators[i] = 0;
                             microweave_printing = 0;
+                            vTabulatorsCancelled = 0;
+                            vTabulatorsSet = 0;
                         }
                         break;
                     }
@@ -2377,23 +2433,9 @@ main_loop_for_printing:
                     // (Black, Magenta, Cyan, Violet, Yellow, Red, Green, White)
                     state = read_byte_from_printer((char *) &printColour);
                     break;
-                case 10: // ESC LF
+                case 10: // ESC LF 
                     // Reverse line feed - Star NL-10
-                    // 01.01.2014 reverse 31/216 inches this may be wrong or adapted .....
-                    // 27.09.2014 maybe next line is to shift down 8/72 inches to begin a new line
-                    // to avoid overwritings if needles are having 72dpi mechanical resolution
-                    // dpiv=216
-                    // vPixelWidth=((float)dpiv/(float)cpi*2)/16; //CPI * 2 weil printcharx
-                    // ebenfalls cpi * 2 nimmt
-                    // ypos=ypos+vPixelWidth*16; //24=8*216/72
-                    // 07.01.2015 wieder auf 24 gesetzt da hier die besten ergebnisse (was
-                    // an der alten formel falschist I dunno)
-                    // changed from 24 to 30 20.09.2015
-                  
-                    ypos = ypos - (float) 30*((float)pitch/(float)cpi);  // Those are 8 Pixels forward concerning the
-                    // printheads 72dpi resolution. 
-                    // Cause the mechanics has a resolution of 216 dpi (which is 3 times
-                    // higher) 8x3=24 steps/pixels has to be done
+                    ypos = ypos - line_spacing;
                     xpos = marginleftp;
                     double_width = 0;    
                     break;
