@@ -73,7 +73,8 @@ int single_broken_line     = 0;
 int double_broken_line     = 0;
 int double_width           = 0;         //Double width printing
 int double_width_single_line = 0;
-int double_height          = 0;         //Double height printing not yet implemented - NB does not affect first line of a page!
+int double_height          = 0;         //Double height printing
+int quad_height            = 0;         // 4 x Height Printing - Star NL-10
 int outline_printing       = 0;         //Outline printing not yet implemeneted
 int shadow_printing        = 0;         //Shadow printing not yet implemented
 
@@ -804,6 +805,14 @@ int printcharx(unsigned char chr)
             vPixelWidth = vPixelWidth * 2;
             yposoffset = yposoffset - (16 * vPixelWidth); // Height of one character
         }
+    }
+    if (quad_height == 1) {
+        // Star NL-10 ENLARGE command - does NOT affect the first line
+        // Move ypos back up page to allow base line of character to remain the same
+        if ((chr!=32) && (ypos >= 48 * vPixelWidth)) {
+            vPixelWidth = vPixelWidth * 4;
+            yposoffset = yposoffset - (48 * vPixelWidth); // Height of one character
+        }
     }    
 
     if (direction_of_char == 1) {
@@ -1288,6 +1297,7 @@ main_loop_for_printing:
                     double_width           =   0;
                     double_width_single_line = 0;
                     double_height          =   0;
+                    quad_height            =   0;
                     outline_printing       =   0;
                     shadow_printing        =   0;
                     print_controlcodes     =   0;
@@ -1716,6 +1726,7 @@ main_loop_for_printing:
                     double_width           =   0;
                     double_width_single_line = 0;
                     double_height          =   0;
+                    quad_height            =   0;
                     outline_printing       =   0;
                     shadow_printing        =   0;
                     print_controlcodes     =   0;
@@ -2019,9 +2030,29 @@ main_loop_for_printing:
                     break;                        
                 case 'w':    // ESC w SELECT DOUBLE HEIGHT
                     state = read_byte_from_printer((char *) &nL);
-                    if ((nL==1) || (nL==49)) double_height=1;
+                    if ((nL==1) || (nL==49)) {
+                        double_height=1;
+                        quad_height=0;
+                    }
                     if ((nL==0) || (nL==48)) double_height=0; 
-                    break;                         
+                    break;
+                case 'h':    // ESC h ENLARGE - STAR NL-10 implementation
+                    state = read_byte_from_printer((char *) &nL);
+                    switch (nL) {
+                    case 0:    
+                        double_height=0;
+                        quad_height=0;
+                        break;
+                    case 1:    
+                        double_height=1;
+                        quad_height=0;
+                        break;
+                    case 2:    
+                        double_height=0;
+                        quad_height=1;
+                        break;                            
+                    }
+                    break;
                 case '4':    // ESC 4 SELECT ITALIC FONT
                     italic = 1;
                     break;    
@@ -2395,10 +2426,14 @@ main_loop_for_printing:
                 case '9':    // Enable paper-out detector
                     // not required
                     break;
+                case 'i':    // Select immediate mode on/off ESC i n
+                    // not required
+                    state = read_byte_from_printer((char *) &nL);
+                    break;                    
                 case 's':    // Select low-speed mode on/off ESC s n
                     // not required
                     state = read_byte_from_printer((char *) &nL);
-                    break;                        
+                    break;                    
                 case 'C':    // 27 67 n Set page length in lines 1<n<127
                     // not implemented yet
                     state = read_byte_from_printer((char *) &nL);
