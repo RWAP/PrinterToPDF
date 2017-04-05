@@ -71,7 +71,8 @@ int single_continuous_line = 0;
 int double_continuous_line = 0;
 int single_broken_line     = 0;
 int double_broken_line     = 0;
-int double_width           = 0;         //Double width printing not yet implemented
+int double_width           = 0;         //Double width printing
+int double_width_single_line = 0;
 int double_height          = 0;         //Double height printing not yet implemented - NB does not affect first line of a page!
 int outline_printing       = 0;         //Outline printing not yet implemeneted
 int shadow_printing        = 0;         //Shadow printing not yet implemented
@@ -360,8 +361,8 @@ unsigned char a0, a1, a2;
 int dotColumns;                             // number of dot columns for bit images
 
 // Tabs
-int hTabulators[35];                        // List of tabulators
-int vTabulators[20];                        // List of vertical tabulators
+double hTabulators[35];                     // List of tabulators
+double vTabulators[20];                     // List of vertical tabulators
 int vTabulatorsSet = 0;                     // Used by VT command to check if any vertical tabs have been set since printer reset
 int vTabulatorsCancelled = 0;               // Used by VT command to check if all vertical tabs have been cancelled
 int curHtab = 0;                            // next active horizontal tab
@@ -793,6 +794,17 @@ int printcharx(unsigned char chr)
         vPixelWidth=vPixelWidth*divisor;
         yposoffset=8;
     }
+    if ((double_width == 1) || (double_width_single_line == 1)) {
+        hPixelWidth = hPixelWidth * 2;
+    }
+    if (double_height == 1) {
+        // If ESC w sent on first line of page does NOT affect the first line
+        // Move ypos back up page to allow base line of character to remain the same
+        if ((chr!=32) && (ypos >= 16 * vPixelWidth)) {
+            vPixelWidth = vPixelWidth * 2;
+            yposoffset = yposoffset - (16 * vPixelWidth); // Height of one character
+        }
+    }    
 
     if (direction_of_char == 1) {
         for (i = 0; i <= 15; i++) {
@@ -853,9 +865,9 @@ void print_character(unsigned char xChar)
     }
     // If out of paper area on the right side, do a newline and shift
     // printer head to the left
-    if (xpos > ((pageSetWidth - 1) - vPixelWidth * 16)) {
+    if (xpos > ((pageSetWidth - 1) - hPixelWidth * 8)) {
         xpos = marginleftp;
-        ypos = ypos + vPixelWidth * 16;
+        ypos = ypos + line_spacing;
     } 
 }
 
@@ -1236,13 +1248,13 @@ main_loop_for_printing:
             case 10:    // lf (0x0a)              
                 ypos = ypos + line_spacing;
                 xpos = marginleftp;
-                double_width = 0;
+                double_width_single_line = 0;
                 break;
             case 12:    // form feed (neues blatt) 
                 ypos = pageSetHeight;  // just put it in an out of area position
                 test_for_new_paper();
                 i = 0;
-                double_width = 0;
+                double_width_single_line = 0;
                 break;
             case 13:    // cr (0x0d)
                 xpos = marginleftp;
@@ -1274,6 +1286,8 @@ main_loop_for_printing:
                     single_broken_line     =   0;
                     double_broken_line     =   0;
                     double_width           =   0;
+                    double_width_single_line = 0;
+                    double_height          =   0;
                     outline_printing       =   0;
                     shadow_printing        =   0;
                     print_controlcodes     =   0;
@@ -1511,7 +1525,7 @@ main_loop_for_printing:
                     // higher) 8x3=24 steps/pixels has to be done
                     ypos = ypos + line_spacing;
                     xpos = marginleftp;
-                    double_width = 0;
+                    double_width_single_line = 0;
                     break;
                 }
                 break;
@@ -1520,7 +1534,6 @@ main_loop_for_printing:
                     print_character(xd);
                 } else {
                     xpos = marginleftp;
-                    double_width = 0;
                     curVtab = -1;
                     for (i = 0; i < 16; i++) {
                         if (vTabulators[i] <= ypos) curVtab = i;
@@ -1538,11 +1551,12 @@ main_loop_for_printing:
                             ypos = pageSetHeight;  // just put it in an out of area position
                             test_for_new_paper();
                             i = 0;
-                            double_width = 0;                                
+                            double_width_single_line = 0;                                
                         } else {
                             // LF
                             curVtab = 0; // No more tab marks
                             ypos = ypos + line_spacing;
+                            double_width_single_line = 0;
                         }
                     } else if (vTabulators[curVtab] > 0) {
                         // forward to next tab position
@@ -1552,7 +1566,9 @@ main_loop_for_printing:
                         if ((ypos > (pageSetHeight - 17 * vPixelWidth)) {
                             // Do nothing
                             ypos = ypos2;
-                        }                            
+                        } else {
+                            double_width_single_line = 0;
+                        }
                     }
                 }
                 break;
@@ -1563,7 +1579,7 @@ main_loop_for_printing:
                     ypos = pageSetHeight;  // just put it in an out of area position
                     test_for_new_paper();
                     i = 0;
-                    double_width = 0;
+                    double_width_single_line = 0;
                 }
                 break;
             case 13:    // cr (0x0d)
@@ -1577,7 +1593,7 @@ main_loop_for_printing:
                 if (print_controlcodes) {
                     print_character(xd);
                 } else {                
-                    double_width = 1;
+                    double_width_single_line = 1;
                 }
                 break;
             case 15:    // SI Shift In (do nothing) Condensed printing on
@@ -1623,7 +1639,7 @@ main_loop_for_printing:
                 } else {                
                     // Intended to turn off, stop or interrupt an ancillary device, or for
                     // any other device control function.
-                    double_width = 0;
+                    double_width_single_line = 0;
                 }
                 break;
             case 21:    // NAK Negative Acknowledgement (do nothing)
@@ -1698,6 +1714,8 @@ main_loop_for_printing:
                     single_broken_line     =   0;
                     double_broken_line     =   0;
                     double_width           =   0;
+                    double_width_single_line = 0;
+                    double_height          =   0;
                     outline_printing       =   0;
                     shadow_printing        =   0;
                     print_controlcodes     =   0;
@@ -1992,13 +2010,14 @@ main_loop_for_printing:
                     if ((nL==0) || (nL==48)) underlined=0; 
                     break;
                 case 'W':    // ESC W SELECT DOUBLE WIDTH
-                    // Not yet implemented
                     state = read_byte_from_printer((char *) &nL);
                     if ((nL==1) || (nL==49)) double_width=1;
-                    if ((nL==0) || (nL==48)) double_width=0; 
+                    if ((nL==0) || (nL==48)) {
+                        double_width=0; 
+                        double_width_single_line = 0;
+                    }
                     break;                        
                 case 'w':    // ESC w SELECT DOUBLE HEIGHT
-                    // Not yet implemented
                     state = read_byte_from_printer((char *) &nL);
                     if ((nL==1) || (nL==49)) double_height=1;
                     if ((nL==0) || (nL==48)) double_height=0; 
@@ -2050,12 +2069,11 @@ main_loop_for_printing:
                     }
                     if ( isNthBitSet(nL, 5) ) {
                         // Select Double Width
-                        // Not yet implemented;
                         double_width = 1;
                     } else {
                         // Cancel Double Width
-                        // Not yet implemented
                         double_width = 0;
+                        double_width_single_line = 0;
                     }
                     if ( isNthBitSet(nL, 6) ) {
                         // Select Italics
@@ -2437,7 +2455,7 @@ main_loop_for_printing:
                     // Reverse line feed - Star NL-10
                     ypos = ypos - line_spacing;
                     xpos = marginleftp;
-                    double_width = 0;    
+                    double_width_single_line = 0;    
                     break;
                 case 12: // ESC FF
                     // Reverse form feed - Star NL-10
@@ -2642,7 +2660,7 @@ main_loop_for_printing:
                 } // end of switch
                 break;
             case 14:    // ESC SO Shift Out Select double Width printing (for one line)
-                double_width = 1;
+                double_width_single_line = 1;
                 break;                    
             case 15:    // ESC SI Shift In Condensed printing on
                 if (pitch==10) cpi=17.14;
