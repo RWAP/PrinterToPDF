@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <time.h>
 #include "SDL.h"
 #include "dir.c"
 
@@ -30,16 +31,17 @@
 int escp2 = 1;              // Use ESC/P2 or just ESC/P support (DPI differences)
 int pageSetWidth = 1984;
 int pageSetHeight = 2525;
+unsigned char printermemory[1984 * 2525 * 3]; // Allow 3 bytes per pixel
 
 unsigned int page = 0;
 char filenameX[1000];
 char filenameY[1000];
 char *param;                // parameters passed to program
 int xdim, ydim;
-unsigned char printermemory[pageSetWidth * pageSetHeight * 3];
 int sdlon = 1;              // sdlon=0 Do not copy output to SDL screen
 int state = 1;              // State of the centronics interface
 int timeout = 4;            // printout finished after this time. so start to print all received data.
+int countcharz;
 
 char    path[1000];         // main path 
 char    pathraw[1000];      //path to raw files
@@ -89,7 +91,9 @@ int read_byte_from_printer(unsigned char *bytex)
     /* This routine needs to be written according to your requirements
     * the routine needs to fetch the next byte from the captured printer data file (or port).
     */
-
+    unsigned char databyte;
+    // read databyte from file or port...
+    
     *bytex = databyte;
     return 1;
 }
@@ -104,7 +108,7 @@ int cfileexists(const char* filename)
     return (stat (filename, &buffer) == 0);
 }
 
-bool isNthBitSet (unsigned char c, int n) {
+int isNthBitSet (unsigned char c, int n) {
   return (1 & (c >> n));
 }
 
@@ -249,10 +253,17 @@ void putpx(int x, int y)
         rgb3 = 255;
         break;
     }
-    int pos = y * 3 * pageSetWidth + x * 3;    
-    printermemory[pos + 0] |= rgb1;
-    printermemory[pos + 1] |= rgb2;
-    printermemory[pos + 2] |= rgb3;
+    int pos = y * (3 * pageSetWidth) + (x * 3);
+    // If existing pixel is 0x00FFFFFF (white), then we need to reset it to 0x00000000; before OR'ing the chosen colour
+    if (printermemory[pos + 0] == 255 && printermemory[pos + 1] == 255 && printermemory[pos + 2] == 255) {
+        printermemory[pos + 0] = rgb1;
+        printermemory[pos + 1] = rgb2;
+        printermemory[pos + 2] = rgb3;
+    } else {
+        printermemory[pos + 0] |= rgb1;
+        printermemory[pos + 1] |= rgb2;
+        printermemory[pos + 2] |= rgb3;
+    }
 }
 
 /*
@@ -265,7 +276,7 @@ void putpixel(SDL_Surface * surface, int x, int y, Uint32 pixel)
     // if we are out of scope don't putpixel, otherwise we'll get a segmentation fault
     if (x > (pageSetWidth - 1)) return;
     if (y > (pageSetHeight - 1)) return;
-    putpx(x, y);    // Aufruf f?Speicherplot
+    putpx(x, y);    // Plot to bitmap for PDF
     if (sdlon == 0) return;
 
     // Add pixel to the screen
@@ -279,64 +290,92 @@ void putpixel(SDL_Surface * surface, int x, int y, Uint32 pixel)
     Uint8 *p = (Uint8 *) surface->pixels + y * surface->pitch + x * bpp;
 
     // Convert the otherwise black pixel to the desired colour
-    if (pixel == 0x0000000) {
+    if (pixel == 0x00000000) {
         switch (printColour) {
         case 0:
             // Black
-            pixel = 0x0000000;
+            pixel = 0x00000000;
             break;
         case 1:
             // Magenta
-            pixel = 0x0FF00FF;
+            pixel = 0x00FF00FF;
             break;
         case 2:
             // Cyan
-            pixel = 0x000FFFF;
+            pixel = 0x0000FFFF;
             break;        
         case 3:
             // Violet
-            pixel = 0x0EE82EE;
+            pixel = 0x00EE82EE;
             break;
         case 4:
             // Yellow
-            pixel = 0x0FFFF00;
+            pixel = 0x00FFFF00;
             break;
         case 5:
             // Red
-            pixel = 0x0FF0000;
+            pixel = 0x00FF0000;
             break;
         case 6:
             // Green
-            pixel = 0x000FF00;
+            pixel = 0x0000FF00;
             break;
         case 7:
             // White
-            pixel = 0x0FFFFFF;
+            pixel = 0x00FFFFFF;
             break;
         }    
     }
-
+    
+    // If existing pixel is 0x00FFFFFF (white), then we need to reset it to 0x00000000; before OR'ing the chosen colour
     switch (bpp) {
-        case 1:
+    case 1:
+        if (p == 255) {
+            *p = pixel;
+        } else {
             *p |= pixel;
-            break;
-        case 2:
+        }
+        break;
+    case 2:
+        if (p[0] == 255 && p[1] == 255) {
+            p[0] = pixel;
+            p[1] = pixel;
+        } else {
             *(Uint16 *) p |= pixel;
-            break;
-        case 3:
-            if (SDL_BYTEORDER == SDL_BIG_ENDIAN) {
-                p[0] |= (pixel >> 16) & 0xff;
-                p[1] |= (pixel >> 8) & 0xff;
-                p[2] |= pixel & 0xff;
-            } else {
-                p[0] |= pixel & 0xff;
-                p[1] |= (pixel >> 8) & 0xff;
-                p[2] |= (pixel >> 16) & 0xff;
-            }
-            break;
-        case 4:
+        }
+        break;
+    case 3:
+        if (p[0] == 255 && p[1] == 255 && p[2] == 255) {
+            p[0] = pixel;
+            p[1] = pixel;
+            p[2] = pixel;
+        } else if (SDL_BYTEORDER == SDL_BIG_ENDIAN) {
+            p[0] |= (pixel >> 16) & 0xff;
+            p[1] |= (pixel >> 8) & 0xff;
+            p[2] |= pixel & 0xff;
+        } else {
+            p[0] |= pixel & 0xff;
+            p[1] |= (pixel >> 8) & 0xff;
+            p[2] |= (pixel >> 16) & 0xff;
+        }
+        break;
+    case 4:
+        if (p[0] == 255 && p[1] == 255 && p[2] == 255 && p[3] == 255) {
+            *(Uint32 *) p = pixel;
+        } else {        
             *(Uint32 *) p |= pixel;
-            break;
+        }
+        break;
+    }
+}
+
+void putpixelbig(int xpos, int ypos, float hwidth, float vdith)
+{
+    int a, b;
+    for (a = 0; a < hwidth; a++) {
+        for (b = 0; b < vdith; b++) {
+            putpixel(display, xpos + a, ypos + b, 0x00000000);
+        }
     }
 }
 
@@ -344,7 +383,7 @@ int cpi = 12;
 int pitch = 12; //Same like cpi but will retain its value when condensed printing is switched on
 int line_spacing = (int) 180 * 1 / 6;       // normally 1/6 inch line spacing - (float) 30*((float)pitch/(float)cpi);
 int marginleft = 0, marginright = 99;       // in characters
-int marginleftp = 0, marginrightp = pageSetWidth;   // in pixels
+int marginleftp = 0, marginrightp = 1984;   // in pixels
 int dpih = 240, dpiv = 216;                 // resolution in dpi
 int needles = 24;                           // number of needles
 int rows = 0;
@@ -371,13 +410,14 @@ int curVtab = 0;                            // next active vertical tab
 
 float hPixelWidth, vPixelWidth;
 FILE *f;
+FILE *fp = NULL;
 SDL_Surface *display;
 char fontx[2049000];
 
 void erasepage()
 {
     int i;  
-    for (i = 0; i < pageSetWidth * pageSetHeight * 3; i++) printermemory[i] = 255;
+    for (i = 0; i < (pageSetWidth * 3) * pageSetHeight; i++) printermemory[i] = 255;
 }
 
 void erasesdl()
@@ -430,11 +470,390 @@ int test_for_new_paper()
 }
 
 int precedingDot(int x, int y) {
-    int pos = y * 3 * pageSetWidth + (x-1) * 3;
-    if (printermemory[pos + 0]>0) return 1;
-    if (printermemory[pos + 1]>0) return 1;
-    if (printermemory[pos + 2]>0) return 1;
+    int pos = y * (3 * pageSetWidth) + (x-1) * 3;
+    if (printermemory[pos + 0]<255) return 1;
+    if (printermemory[pos + 1]<255) return 1;
+    if (printermemory[pos + 2]<255) return 1;
     return 0;
+}
+
+void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth) {
+    int opr, xByte, j, colour, existingColour;
+    unsigned int xd, repeater, command, dataCount;
+    signed int parameter;
+    int xpos2;
+    unsigned char seedrow[1984 * 4];
+    int moveSize = 1; // Set by MOVEXDOT or MOVEXBYTE
+    if (compressMode == 3) {
+        // Delta Row Compression
+        for (xpos2 = 0; xpos2 < pageSetWidth * 4; xpos++) {
+            seedrow[xpos2]=0;
+        }
+    }
+    existingColour = printColour;
+    if (printColour > 4) printColour = 4;
+    
+  tiff_delta_loop:    
+    // timeout
+    state = 0;
+    clock_gettime(CLOCK_REALTIME, &tvx);
+    startzeit = tvx.tv_sec;
+    while (state == 0) {
+        state = read_byte_from_printer((char *) &xd);
+        clock_gettime(CLOCK_REALTIME, &tvx);
+        if (((tvx.tv_sec - startzeit) >= timeout) && (state == 0)) goto raus_tiff_delta_print;
+    }
+    
+    // Get command into nibbles
+    command = xd > 4;
+    parameter = xd & 0xF;
+    switch (command) {
+    case 2:
+        // XFER 0010 xxxx - parameter number of raster image data 0...15
+        for (opr = 0; opr < parameter; opr ++) {
+            state = 0;
+            clock_gettime(CLOCK_REALTIME, &tvx);
+            startzeit = tvx.tv_sec;
+            while (state == 0) {
+                state = read_byte_from_printer((char *) &repeater);
+                clock_gettime(CLOCK_REALTIME, &tvx);
+                if (((tvx.tv_sec - startzeit) >= timeout) && (state == 0)) goto raus_tiff_delta_print;
+            }
+            if (repeater <= 127) {
+                repeater++;
+                // string of data byes to be printed
+                for (j = 0; j < repeater; j++) {
+                    state = 0;
+                    clock_gettime(CLOCK_REALTIME, &tvx);
+                    startzeit = tvx.tv_sec;                    
+                    while (state == 0) {
+                        state = read_byte_from_printer((char *) &xd);  // byte to be printed
+                        clock_gettime(CLOCK_REALTIME, &tvx);
+                        if (((tvx.tv_sec - startzeit) >= timeout) && (state == 0)) goto raus_tiff_delta_print;
+                    }
+                    for (xByte = 0; xByte < 8; xByte++) {
+                        xpos2 = printColour * pageSetWidth + xpos;
+                        if (xd & 128) {
+                            putpixel(display, xpos, ypos, 0x00000000);
+                            if (compressMode == 3) {
+                                // for ESC.3 Delta Row also copy bytes to seedrow for current colour
+                                if (xpos < pageSetWidth) seedrow[xpos2] = 1;
+                            }
+                        } else if (compressMode == 3) {
+                            // for ESC.3 Delta Row also copy bytes to seedrow for current colour
+                            if (xpos < pageSetWidth) seedrow[xpos2] = 0;
+                        }
+                        xd = xd << 1;
+                        xpos = xpos + hPixelWidth;
+                    }
+                    // SDL_UpdateRect(display, 0, 0, 0, 0);
+                    opr++;
+                }
+            } else {
+                // Repeat following byte twos complement (repeater)
+                repeater = (256 - repeater) + 1;
+                state = 0;
+                clock_gettime(CLOCK_REALTIME, &tvx);
+                startzeit = tvx.tv_sec;                
+                while (state == 0) {
+                    state = read_byte_from_printer((char *) &xd);  // byte to be printed
+                    clock_gettime(CLOCK_REALTIME, &tvx);
+                    if (((tvx.tv_sec - startzeit) >= timeout) && (state == 0)) goto raus_tiff_delta_print;
+                }
+                for (j = 0; j < repeater; j++) {
+                    for (xByte = 0; xByte < 8; xByte++) {
+                        xpos2 = printColour * pageSetWidth + xpos;
+                        if (xd & 128) {
+                            putpixel(display, xpos, ypos, 0x00000000);
+                            if (compressMode == 3) {
+                                // for ESC.3 Delta Row also copy bytes to seedrow for current colour
+                                if (xpos < pageSetWidth) seedrow[xpos2] = 1;
+                            }
+                        } else if (compressMode == 3) {
+                            // for ESC.3 Delta Row also copy bytes to seedrow for current colour
+                            if (xpos < pageSetWidth) seedrow[xpos2] = 0;
+                        }
+                        xd = xd << 1;
+                        xpos = xpos + hPixelWidth;
+                    }
+                    // SDL_UpdateRect(display, 0, 0, 0, 0);
+                }
+                opr++;
+            }
+        }    
+        break;
+    case 3:
+        // XFER 0011 xxxx - parameter number of lookups to raster printer image data 1...2
+        if (parameter == 1) {
+            state = 0;
+            clock_gettime(CLOCK_REALTIME, &tvx);
+            startzeit = tvx.tv_sec;
+            while (state == 0) {
+                state = read_byte_from_printer((char *) &dataCount);
+                clock_gettime(CLOCK_REALTIME, &tvx);
+                if (((tvx.tv_sec - startzeit) >= timeout) && (state == 0)) goto raus_tiff_delta_print;
+            }
+        } else {
+            state = 0;
+            clock_gettime(CLOCK_REALTIME, &tvx);
+            startzeit = tvx.tv_sec;
+            while (state == 0) {
+                state = read_byte_from_printer((char *) &nL);
+                clock_gettime(CLOCK_REALTIME, &tvx);
+                if (((tvx.tv_sec - startzeit) >= timeout) && (state == 0)) goto raus_tiff_delta_print;
+            }
+            state = 0;
+            clock_gettime(CLOCK_REALTIME, &tvx);
+            startzeit = tvx.tv_sec;
+            while (state == 0) {
+                state = read_byte_from_printer((char *) &nH);
+                clock_gettime(CLOCK_REALTIME, &tvx);
+                if (((tvx.tv_sec - startzeit) >= timeout) && (state == 0)) goto raus_tiff_delta_print;
+            }
+            dataCount = nL + (256 * nH);
+        }
+        for (opr = 0; opr < dataCount; opr ++) {
+            state = 0;
+            clock_gettime(CLOCK_REALTIME, &tvx);
+            startzeit = tvx.tv_sec;
+            while (state == 0) {
+                state = read_byte_from_printer((char *) &repeater);  // number of times to repeat next byte
+                clock_gettime(CLOCK_REALTIME, &tvx);
+                if (((tvx.tv_sec - startzeit) >= timeout) && (state == 0)) goto raus_tiff_delta_print;
+            }
+            if (repeater <= 127) {
+                repeater++;
+                // string of data byes to be printed
+                for (j = 0; j < repeater; j++) {
+                    state = 0;
+                    clock_gettime(CLOCK_REALTIME, &tvx);
+                    startzeit = tvx.tv_sec;                    
+                    while (state == 0) {
+                        state = read_byte_from_printer((char *) &xd);  // byte to be printed
+                        clock_gettime(CLOCK_REALTIME, &tvx);
+                        if (((tvx.tv_sec - startzeit) >= timeout) && (state == 0)) goto raus_tiff_delta_print;
+                    }
+                    for (xByte = 0; xByte < 8; xByte++) {
+                        xpos2 = printColour * pageSetWidth + xpos;
+                        if (xd & 128) {
+                            putpixel(display, xpos, ypos, 0x00000000);
+                            if (compressMode == 3) {
+                                // for ESC.3 Delta Row also copy bytes to seedrow for current colour
+                                if (xpos < pageSetWidth) seedrow[xpos2] = 1;
+                            }
+                        } else if (compressMode == 3) {
+                            // for ESC.3 Delta Row also copy bytes to seedrow for current colour
+                            if (xpos < pageSetWidth) seedrow[xpos2] = 0;
+                        }
+                        xd = xd << 1;
+                        xpos = xpos + hPixelWidth;
+                    }
+                    // SDL_UpdateRect(display, 0, 0, 0, 0);
+                    opr++;
+                }
+            } else {
+                // Repeat following byte twos complement (repeater)
+                repeater = (256 - repeater) + 1;
+                state = 0;
+                clock_gettime(CLOCK_REALTIME, &tvx);
+                startzeit = tvx.tv_sec;                
+                while (state == 0) {
+                    state = read_byte_from_printer((char *) &xd);  // byte to be printed
+                    clock_gettime(CLOCK_REALTIME, &tvx);
+                    if (((tvx.tv_sec - startzeit) >= timeout) && (state == 0)) goto raus_tiff_delta_print;
+                }
+                for (j = 0; j < repeater; j++) {
+                    for (xByte = 0; xByte < 8; xByte++) {
+                        xpos2 = printColour * pageSetWidth + xpos;
+                        if (xd & 128) {
+                            putpixel(display, xpos, ypos, 0x00000000);
+                            if (compressMode == 3) {
+                                // for ESC.3 Delta Row also copy bytes to seedrow for current colour
+                                if (xpos < pageSetWidth) seedrow[xpos2] = 1;
+                            }
+                        } else if (compressMode == 3) {
+                            // for ESC.3 Delta Row also copy bytes to seedrow for current colour
+                            if (xpos < pageSetWidth) seedrow[xpos2] = 0;
+                        }
+                        xd = xd << 1;
+                        xpos = xpos + hPixelWidth;
+                    }
+                    // SDL_UpdateRect(display, 0, 0, 0, 0);
+                }
+                opr++;
+            }
+        }    
+        break; 
+    case 4:
+        // MOVX 0100 xxxx - space to move -8 to 7
+        if (parameter > 7) parameter = 7 - parameter;
+        xpos2 = xpos + parameter * moveSize * hPixelWidth;
+        if (xpos2 >= marginleftp && xpos2 <= marginrightp) xpos = xpos2;
+        break;
+    case 5:
+        // MOVX 0101 xxxx - parameter number of lookups to movement data 1...2
+        if (parameter == 1) {
+            state = 0;
+            clock_gettime(CLOCK_REALTIME, &tvx);
+            startzeit = tvx.tv_sec;
+            while (state == 0) {
+                state = read_byte_from_printer((char *) &parameter);
+                clock_gettime(CLOCK_REALTIME, &tvx);
+                if (((tvx.tv_sec - startzeit) >= timeout) && (state == 0)) goto raus_tiff_delta_print;
+            }
+            if (parameter > 127) parameter = 127 - parameter; 
+        } else {
+            state = 0;
+            clock_gettime(CLOCK_REALTIME, &tvx);
+            startzeit = tvx.tv_sec;
+            while (state == 0) {
+                state = read_byte_from_printer((char *) &nL);
+                clock_gettime(CLOCK_REALTIME, &tvx);
+                if (((tvx.tv_sec - startzeit) >= timeout) && (state == 0)) goto raus_tiff_delta_print;
+            }
+            state = 0;
+            clock_gettime(CLOCK_REALTIME, &tvx);
+            startzeit = tvx.tv_sec;
+            while (state == 0) {
+                state = read_byte_from_printer((char *) &nH);
+                clock_gettime(CLOCK_REALTIME, &tvx);
+                if (((tvx.tv_sec - startzeit) >= timeout) && (state == 0)) goto raus_tiff_delta_print;
+            }
+            parameter = nL + (256 * nH);
+            if (parameter > 32767) parameter = 32767 - parameter;
+        }
+        xpos2 = xpos + parameter * moveSize * hPixelWidth;
+        if (xpos2 >= marginleftp && xpos2 <= marginrightp) xpos = xpos2;
+        break;
+    case 6:
+        // MOVY 0110 xxxx - space to move down 0 to 15 dots
+        // See ESC ( U command for unit
+        ypos = ypos + (parameter * vPixelWidth);
+        test_for_new_paper();
+        if (compressMode == 3) {
+            // Copy all seed data across to new row
+            colour = printColour;
+            for (printColour = 0; printColour < 5; printColour++) {
+                xpos = 0;
+                for (xpos2 = printColour * pageSetWidth; xpos2 < (printColour+1) * pageSetWidth; xpos2++) {
+                    if (seedrow[xpos2] == 1) putpixel(display, xpos, ypos, 0x00000000);
+                    xpos = xpos + hPixelWidth;
+                }
+            }
+            printColour = colour;
+        }
+        xpos = 0;
+        break;
+    case 7:
+        // MOVY 0111 xxxx - space to move down X dots
+        if (parameter == 1) {
+            state = 0;
+            clock_gettime(CLOCK_REALTIME, &tvx);
+            startzeit = tvx.tv_sec;
+            while (state == 0) {
+                state = read_byte_from_printer((char *) &parameter);
+                clock_gettime(CLOCK_REALTIME, &tvx);
+                if (((tvx.tv_sec - startzeit) >= timeout) && (state == 0)) goto raus_tiff_delta_print;
+            }
+            if (parameter > 127) parameter = 127 - parameter; 
+        } else {
+            state = 0;
+            clock_gettime(CLOCK_REALTIME, &tvx);
+            startzeit = tvx.tv_sec;
+            while (state == 0) {
+                state = read_byte_from_printer((char *) &nL);
+                clock_gettime(CLOCK_REALTIME, &tvx);
+                if (((tvx.tv_sec - startzeit) >= timeout) && (state == 0)) goto raus_tiff_delta_print;
+            }
+            state = 0;
+            clock_gettime(CLOCK_REALTIME, &tvx);
+            startzeit = tvx.tv_sec;
+            while (state == 0) {
+                state = read_byte_from_printer((char *) &nH);
+                clock_gettime(CLOCK_REALTIME, &tvx);
+                if (((tvx.tv_sec - startzeit) >= timeout) && (state == 0)) goto raus_tiff_delta_print;
+            }
+            parameter = nL + (256 * nH);
+        }
+        ypos = ypos + (parameter * vPixelWidth);
+        test_for_new_paper();
+        if (compressMode == 3) {
+            // Copy all seed data across to new row
+            colour = printColour;
+            for (printColour = 0; printColour < 5; printColour++) {
+                xpos = 0;
+                for (xpos2 = printColour * pageSetWidth; xpos2 < (printColour+1) * pageSetWidth; xpos2++) {
+                    if (seedrow[xpos2] == 1) putpixel(display, xpos, ypos, 0x00000000);
+                    xpos = xpos + hPixelWidth;
+                }
+            }
+            printColour = colour;
+        }
+        xpos = 0;
+        break;
+    case 8:
+        // COLR 1000 xxxx 
+        printColour = parameter;
+        break;
+    case 14:
+        switch (parameter) {
+        case 1:
+            // CLR 1110 0001
+            if (compressMode == 3) {
+                // Clear seedrow for current colour
+                for (xpos2 = printColour * pageSetWidth; xpos2 < (printColour+1) * pageSetWidth; xpos2++) {
+                    seedrow[xpos2] == 0;
+                }
+                // Reset the current row on the paper to white and then add the other colours
+                for (j = 0; j < (pageSetWidth * 3) * pageSetHeight; j++) printermemory[j] = 255;
+                if (sdlon == 1) {
+                    // Clear display
+                    for (xpos = 0; xpos < pageSetWidth; xpos++) {
+                        putpixel(display, xpos, ypos, 0x00FFFFFF);
+                    }
+                }
+                // Copy all other seed data across to row on page
+                colour = printColour;
+                for (printColour = 0; printColour < 5; printColour++) {
+                    if (printColour != colour) {
+                        xpos = 0;
+                        for (xpos2 = printColour * pageSetWidth; xpos2 < (printColour+1) * pageSetWidth; xpos2++) {
+                            if (seedrow[xpos2] == 1) putpixel(display, xpos, ypos, 0x00000000);
+                            xpos = xpos + hPixelWidth;
+                        }
+                    }
+                }
+                printColour = colour;
+                xpos = 0;
+            }
+            break;
+        case 2:
+            // CR 1110 0010
+            xpos = 0;
+            break;
+        case 3:
+            // EXIT 1110 0011
+            xpos = 0;
+            goto raus_tiff_delta_print; 
+            break;
+        case 4:
+            // MOVEXBYTE 1110 0100
+            moveSize = 8;
+            xpos = 0;
+            break;
+        case 5:
+            // MOVEXDOT 1110 0101
+            moveSize = 1;
+            xpos = 0;
+            break;
+        }
+        break;
+    }
+    goto tiff_delta_loop;
+    
+  raus_tiff_delta_print:
+    printColour = existingColour;
+    return;
 }
 
 void
@@ -586,7 +1005,7 @@ _24pin_line_bitmap_print(int dotColumns, float hPixelWidth, float vPixelWidth,
                     if ((adjacentDot == 0) && (precedingDot(xpos, ypos2 + xByte) == 1)) {
                         // Miss out second of two consecutive horizontal dots
                     } else {
-                        putpixel(display, xpos, ypos2 + xByte, 0x0000000);
+                        putpixel(display, xpos, ypos2 + xByte, 0x00000000);
                     }
                 }                 
                 xd = xd << 1;
@@ -625,7 +1044,7 @@ _48pin_line_bitmap_print(int dotColumns, float hPixelWidth, float vPixelWidth,
                     if ((adjacentDot == 0) && (precedingDot(xpos, ypos2 + xByte) == 1)) {
                         // Miss out second of two consecutive horizontal dots
                     } else {
-                        putpixel(display, xpos, ypos2 + xByte, 0x0000000);
+                        putpixel(display, xpos, ypos2 + xByte, 0x00000000);
                     }
                 }
                 xd = xd << 1;
@@ -647,7 +1066,7 @@ _line_raster_print(int bandHeight, int dotColumns, float hPixelWidth, float vPix
     unsigned int xd, repeater;
     double ypos2 = ypos;
     test_for_new_paper();
-    for (band = 0; band < bandHeight, band++) {
+    for (band = 0; band < bandHeight; band++) {
         if (rleEncoded) {
             for (opr = 0; opr < dotColumns; opr++) {
                 state = 0;
@@ -671,7 +1090,7 @@ _line_raster_print(int bandHeight, int dotColumns, float hPixelWidth, float vPix
                             if (((tvx.tv_sec - startzeit) >= timeout) && (state == 0)) goto raus_rasterp;
                         }
                         for (xByte = 0; xByte < 8; xByte++) {
-                            if (xd & 128) putpixel(display, xpos, ypos2, 0x0000000);
+                            if (xd & 128) putpixel(display, xpos, ypos2, 0x00000000);
                             xd = xd << 1;
                             xpos = xpos + hPixelWidth;
                         }
@@ -691,7 +1110,7 @@ _line_raster_print(int bandHeight, int dotColumns, float hPixelWidth, float vPix
                     }
                     for (j = 0; j < repeater; j++) {
                         for (xByte = 0; xByte < 8; xByte++) {
-                            if (xd & 128) putpixel(display, xpos, ypos2, 0x0000000);
+                            if (xd & 128) putpixel(display, xpos, ypos2, 0x00000000);
                             xd = xd << 1;
                             xpos = xpos + hPixelWidth;
                         }
@@ -711,7 +1130,7 @@ _line_raster_print(int bandHeight, int dotColumns, float hPixelWidth, float vPix
                     if (((tvx.tv_sec - startzeit) >= timeout) && (state == 0)) goto raus_rasterp;
                 }
                 for (xByte = 0; xByte < 8; xByte++) {
-                    if (xd & 128) putpixel(display, xpos, ypos2, 0x0000000);
+                    if (xd & 128) putpixel(display, xpos, ypos2, 0x00000000);
                     xd = xd << 1;
                     xpos = xpos + hPixelWidth;
                 }
@@ -740,16 +1159,6 @@ int openfont(char *filename)
     }
     fclose(font);
     return 1;
-}
-
-void putpixelbig(int xpos, int ypos, float hwidth, float vdith)
-{
-    int a, b;
-    for (a = 0; a < hwidth; a++) {
-        for (b = 0; b < vdith; b++) {
-            putpixel(display, xpos + a, ypos + b, 0x00000000);
-        }
-    }
 }
 
 int direction_of_char = 0;
@@ -1357,9 +1766,11 @@ main_loop_for_printing:
                         break;
                     case 2:
                         // TIFF compressed mode
+                        _tiff_delta_printing(2, hPixelWidth, vPixelWidth);
                         break;
                     case 3:
                         // Delta Row compressed mode
+                        _tiff_delta_printing(3, hPixelWidth, vPixelWidth);
                         break;
                     }
                     break;
