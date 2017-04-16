@@ -58,7 +58,9 @@ int ackposition            = 0;
 int rawispcl               = 0;         //if 1 the raw folder is copied to pcl folder and raw files are renamed to *.pcl in the pcl folder
 int rawiseps               = 0;         //if 1 the raw folder is copied to eps folder and raw files are renamed to *.eps in the eps folder
 int outputFormatText       = 0;         //0=no conversion  1=Unix (LF) 2= Windows (CR+LF) 3=MAC (CR)
-int printColour            = 0;         //Default colour is black    
+int printColour            = 0;         //Default colour is black
+double defaultUnit         = 0;         //Use Default defined unit
+double thisDefaultUnit     = 0;         //Default unit for use by command    
 
 int bold                   = 0;         //Currently bold and double-strike are the same
 int italic                 = 0;
@@ -382,6 +384,7 @@ int pitch = 10; //Same like cpi but will retain its value when condensed printin
 int line_spacing = (int) 720 * 1 / 6;           // normally 1/6 inch line spacing - (float) 30*((float)pitch/(float)cpi);
 int marginleft = 0, marginright = 99;       // in characters
 int marginleftp = 0, marginrightp = 5954;   // in pixels
+int margintopp = 0, marginbottomp = 8417;
 int cdpih = 120; // fixed dots per inch used for printing characters
 int cdpiv = 144; // fixed dots per inch used for printing characters
 int cpih = 10; // Default is PICA
@@ -391,6 +394,7 @@ int needles = 24;                           // number of needles
 int letterQuality = 0;                      // LQ Mode?
 int rows = 0;
 double xpos = 0, ypos = 0;                  // position of print head
+double xpos2 = 0, ypos2 = 0;                // position of print head
 
 // ******bit images
 int m;                                      // Mode for bit images printing (m)
@@ -481,16 +485,15 @@ int precedingDot(int x, int y) {
 }
 
 void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth) {
-    int opr, xByte, j, colour, existingColour;
+    int opr, xByte, j, bytePointer, colour, existingColour;
     unsigned int xd, repeater, command, dataCount;
     signed int parameter;
-    int xpos2;
     unsigned char seedrow[5954 * 4];
     int moveSize = 1; // Set by MOVEXDOT or MOVEXBYTE
     if (compressMode == 3) {
         // Delta Row Compression
-        for (xpos2 = 0; xpos2 < pageSetWidth * 4; xpos++) {
-            seedrow[xpos2]=0;
+        for (bytePointer = 0; bytePointer < pageSetWidth * 4; bytePointer++) {
+            seedrow[bytePointer]=0;
         }
     }
     existingColour = printColour;
@@ -535,16 +538,16 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
                         if (((tvx.tv_sec - startzeit) >= timeout) && (state == 0)) goto raus_tiff_delta_print;
                     }
                     for (xByte = 0; xByte < 8; xByte++) {
-                        xpos2 = printColour * pageSetWidth + xpos;
+                        bytePointer = printColour * pageSetWidth + xpos;
                         if (xd & 128) {
                             putpixelbig(xpos, ypos, hPixelWidth, vPixelWidth);
                             if (compressMode == 3) {
                                 // for ESC.3 Delta Row also copy bytes to seedrow for current colour
-                                if (xpos < pageSetWidth) seedrow[xpos2] = 1;
+                                if (xpos < pageSetWidth) seedrow[bytePointer] = 1;
                             }
                         } else if (compressMode == 3) {
                             // for ESC.3 Delta Row also copy bytes to seedrow for current colour
-                            if (xpos < pageSetWidth) seedrow[xpos2] = 0;
+                            if (xpos < pageSetWidth) seedrow[bytePointer] = 0;
                         }
                         xd = xd << 1;
                         xpos = xpos + hPixelWidth;
@@ -565,16 +568,16 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
                 }
                 for (j = 0; j < repeater; j++) {
                     for (xByte = 0; xByte < 8; xByte++) {
-                        xpos2 = printColour * pageSetWidth + xpos;
+                        bytePointer = printColour * pageSetWidth + xpos;
                         if (xd & 128) {
                             putpixelbig(xpos, ypos, hPixelWidth, vPixelWidth);
                             if (compressMode == 3) {
                                 // for ESC.3 Delta Row also copy bytes to seedrow for current colour
-                                if (xpos < pageSetWidth) seedrow[xpos2] = 1;
+                                if (xpos < pageSetWidth) seedrow[bytePointer] = 1;
                             }
                         } else if (compressMode == 3) {
                             // for ESC.3 Delta Row also copy bytes to seedrow for current colour
-                            if (xpos < pageSetWidth) seedrow[xpos2] = 0;
+                            if (xpos < pageSetWidth) seedrow[bytePointer] = 0;
                         }
                         xd = xd << 1;
                         xpos = xpos + hPixelWidth;
@@ -637,16 +640,16 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
                         if (((tvx.tv_sec - startzeit) >= timeout) && (state == 0)) goto raus_tiff_delta_print;
                     }
                     for (xByte = 0; xByte < 8; xByte++) {
-                        xpos2 = printColour * pageSetWidth + xpos;
+                        bytePointer = printColour * pageSetWidth + xpos;
                         if (xd & 128) {
                             putpixelbig(xpos, ypos, hPixelWidth, vPixelWidth);
                             if (compressMode == 3) {
                                 // for ESC.3 Delta Row also copy bytes to seedrow for current colour
-                                if (xpos < pageSetWidth) seedrow[xpos2] = 1;
+                                if (xpos < pageSetWidth) seedrow[bytePointer] = 1;
                             }
                         } else if (compressMode == 3) {
                             // for ESC.3 Delta Row also copy bytes to seedrow for current colour
-                            if (xpos < pageSetWidth) seedrow[xpos2] = 0;
+                            if (xpos < pageSetWidth) seedrow[bytePointer] = 0;
                         }
                         xd = xd << 1;
                         xpos = xpos + hPixelWidth;
@@ -667,16 +670,16 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
                 }
                 for (j = 0; j < repeater; j++) {
                     for (xByte = 0; xByte < 8; xByte++) {
-                        xpos2 = printColour * pageSetWidth + xpos;
+                        bytePointer = printColour * pageSetWidth + xpos;
                         if (xd & 128) {
                             putpixelbig(xpos, ypos, hPixelWidth, vPixelWidth);
                             if (compressMode == 3) {
                                 // for ESC.3 Delta Row also copy bytes to seedrow for current colour
-                                if (xpos < pageSetWidth) seedrow[xpos2] = 1;
+                                if (xpos < pageSetWidth) seedrow[bytePointer] = 1;
                             }
                         } else if (compressMode == 3) {
                             // for ESC.3 Delta Row also copy bytes to seedrow for current colour
-                            if (xpos < pageSetWidth) seedrow[xpos2] = 0;
+                            if (xpos < pageSetWidth) seedrow[bytePointer] = 0;
                         }
                         xd = xd << 1;
                         xpos = xpos + hPixelWidth;
@@ -690,7 +693,9 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
     case 4:
         // MOVX 0100 xxxx - space to move -8 to 7
         if (parameter > 7) parameter = 7 - parameter;
-        xpos2 = xpos + parameter * moveSize * hPixelWidth;
+        thisDefaultUnit = defaultUnit;
+        if (defaultUnit == 0) thisDefaultUnit = printerdpiv / 360; // Default for command is 1/360 inch units        
+        xpos2 = xpos + parameter * moveSize * thisDefaultUnit;
         if (xpos2 >= marginleftp && xpos2 <= marginrightp) xpos = xpos2;
         break;
     case 5:
@@ -725,21 +730,25 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
             parameter = nL + (256 * nH);
             if (parameter > 32767) parameter = 32767 - parameter;
         }
-        xpos2 = xpos + parameter * moveSize * hPixelWidth;
+        thisDefaultUnit = defaultUnit;
+        if (defaultUnit == 0) thisDefaultUnit = printerdpiv / 360; // Default for command is 1/360 inch units        
+        xpos2 = xpos + parameter * moveSize * thisDefaultUnit;
         if (xpos2 >= marginleftp && xpos2 <= marginrightp) xpos = xpos2;
         break;
     case 6:
-        // MOVY 0110 xxxx - space to move down 0 to 15 dots
+        // MOVY 0110 xxxx - space to move down 0 to 15 units
         // See ESC ( U command for unit
-        ypos = ypos + (parameter * vPixelWidth);
+        thisDefaultUnit = defaultUnit;
+        if (defaultUnit == 0) thisDefaultUnit = printerdpiv / 360; // Default for command is 1/360 inch units
+        ypos = ypos + (parameter * thisDefaultUnit);
         test_for_new_paper();
         if (compressMode == 3) {
             // Copy all seed data across to new row
             colour = printColour;
             for (printColour = 0; printColour < 5; printColour++) {
                 xpos = 0;
-                for (xpos2 = printColour * pageSetWidth; xpos2 < (printColour+1) * pageSetWidth; xpos2++) {
-                    if (seedrow[xpos2] == 1) putpixelbig(xpos, ypos, hPixelWidth, vPixelWidth);
+                for (bytePointer = printColour * pageSetWidth; bytePointer < (printColour+1) * pageSetWidth; bytePointer++) {
+                    if (seedrow[bytePointer] == 1) putpixelbig(xpos, ypos, hPixelWidth, vPixelWidth);
                     xpos = xpos + hPixelWidth;
                 }
             }
@@ -778,15 +787,17 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
             }
             parameter = nL + (256 * nH);
         }
-        ypos = ypos + (parameter * vPixelWidth);
+        thisDefaultUnit = defaultUnit;
+        if (defaultUnit == 0) thisDefaultUnit = printerdpiv / 360; // Default for command is 1/360 inch units
+        ypos = ypos + (parameter * thisDefaultUnit);
         test_for_new_paper();
         if (compressMode == 3) {
             // Copy all seed data across to new row
             colour = printColour;
             for (printColour = 0; printColour < 5; printColour++) {
                 xpos = 0;
-                for (xpos2 = printColour * pageSetWidth; xpos2 < (printColour+1) * pageSetWidth; xpos2++) {
-                    if (seedrow[xpos2] == 1) putpixelbig(xpos, ypos, hPixelWidth, vPixelWidth);
+                for (bytePointer = printColour * pageSetWidth; bytePointer < (printColour+1) * pageSetWidth; bytePointer++) {
+                    if (seedrow[bytePointer] == 1) putpixelbig(xpos, ypos, hPixelWidth, vPixelWidth);
                     xpos = xpos + hPixelWidth;
                 }
             }
@@ -804,8 +815,8 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
             // CLR 1110 0001
             if (compressMode == 3) {
                 // Clear seedrow for current colour
-                for (xpos2 = printColour * pageSetWidth; xpos2 < (printColour+1) * pageSetWidth; xpos2++) {
-                    seedrow[xpos2] == 0;
+                for (bytePointer = printColour * pageSetWidth; bytePointer < (printColour+1) * pageSetWidth; bytePointer++) {
+                    seedrow[bytePointer] == 0;
                 }
                 // Reset the current row on the paper to white and then add the other colours
                 for (j = 0; j < (pageSetWidth * 3) * pageSetHeight; j++) printermemory[j] = 255;
@@ -823,8 +834,8 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
                 for (printColour = 0; printColour < 5; printColour++) {
                     if (printColour != colour) {
                         xpos = 0;
-                        for (xpos2 = printColour * pageSetWidth; xpos2 < (printColour+1) * pageSetWidth; xpos2++) {
-                            if (seedrow[xpos2] == 1) putpixelbig(xpos, ypos, hPixelWidth, vPixelWidth);
+                        for (bytePointer = printColour * pageSetWidth; bytePointer < (printColour+1) * pageSetWidth; bytePointer++) {
+                            if (seedrow[bytePointer] == 1) putpixelbig(xpos, ypos, hPixelWidth, vPixelWidth);
                             xpos = xpos + hPixelWidth;
                         }
                     }
@@ -956,7 +967,6 @@ _24pin_line_bitmap_print(int dotColumns, float hPixelWidth, float vPixelWidth,
     // bitmap graphics printing - prints bytes vertically
     int opr, fByte, xByte, j;
     unsigned int xd, repeater;
-    double ypos2;
     test_for_new_paper();
     for (opr = 0; opr < dotColumns; opr++) {
         // print 6 bytes (6 x 8 dots) per column
@@ -996,7 +1006,6 @@ _48pin_line_bitmap_print(int dotColumns, float hPixelWidth, float vPixelWidth,
     // bitmap graphics printing - prints bytes vertically
     int opr, fByte, xByte, j;
     unsigned int xd, repeater;
-    double ypos2;
     test_for_new_paper();
     for (opr = 0; opr < dotColumns; opr++) {
         // print 6 bytes (6 x 8 dots) per column
@@ -1036,7 +1045,6 @@ _line_raster_print(int bandHeight, int dotColumns, float hPixelWidth, float vPix
     // Data is sent in horizontal bands of up to dotColumns high
     int opr, fByte, xByte, j, band;
     unsigned int xd, repeater;
-    double ypos2 = ypos;
     test_for_new_paper();
     for (band = 0; band < bandHeight; band++) {
         if (rleEncoded) {
@@ -1136,7 +1144,6 @@ int openfont(char *filename)
 int direction_of_char = 0;
 int printcharx(unsigned char chr)
 {
-    if (endlesstext==1) return 0;
     unsigned int adressOfChar = 0;
     unsigned int chr2;
     int i, fByte;
@@ -1781,21 +1788,27 @@ main_loop_for_printing:
                     switch (nL) {
                     case 'C': 
                         // 27 40 67 nL nH mL mH Set page length in defined unit
-                        // not implemented yet
-                        state = read_byte_from_printer((char *) &nL); 
+                        // page size not implemented yet
+                        state = read_byte_from_printer((char *) &nL); // always 2
                         if (state == 0) break;
-                        state = read_byte_from_printer((char *) &nH); 
+                        state = read_byte_from_printer((char *) &nH); // always 0
                         if (state == 0) break;
                         state = read_byte_from_printer((char *) &mL); 
                         if (state == 0) break;
-                        state = read_byte_from_printer((char *) &mH); 
+                        state = read_byte_from_printer((char *) &mH);
+                        thisDefaultUnit = defaultUnit;
+                        if (defaultUnit == 0) thisDefaultUnit = printerdpiv / 360; // Default for command is 1/360 inch units
+                        // pageLength = ((mH * 256) + mL) * thisDefaultUnit;
+                        ypos = 0;
+                        margintopp = 0;
+                        marginbottomp = 8417;
                         break;
                     case 'c': 
                         // 27 40 67 nL nH tL tH bL bH Set page format
-                        // not implemented yet
-                        state = read_byte_from_printer((char *) &nL); 
+                        // top and bottom margins not implemented yet
+                        state = read_byte_from_printer((char *) &nL); // always 4 
                         if (state == 0) break;
-                        state = read_byte_from_printer((char *) &nH); 
+                        state = read_byte_from_printer((char *) &nH); // always 0
                         if (state == 0) break;
                         state = read_byte_from_printer((char *) &tL); 
                         if (state == 0) break;
@@ -1803,38 +1816,67 @@ main_loop_for_printing:
                         if (state == 0) break;
                         state = read_byte_from_printer((char *) &bL); 
                         if (state == 0) break;
-                        state = read_byte_from_printer((char *) &bH); 
+                        state = read_byte_from_printer((char *) &bH);
+                        thisDefaultUnit = defaultUnit;
+                        if (defaultUnit == 0) thisDefaultUnit = printerdpiv / 360; // Default for command is 1/360 inch units
+                        margintopp = ((tH * 256) + tL) * thisDefaultUnit;
+                        marginbottomp = ((bH * 256) + bL) * thisDefaultUnit;
+                        if (marginbottomp > 22 * printerdpih) bottomp = 22 * printerdpih; // Max 22 inches
+                        ypos = 0;
+                        // cancel top and bottom margins (margintopp and marginbottomp - to be implemented)                            
                         break;
                     case 'V': 
                         // 27 40 86 nL nH mL mH Set absolute vertical print position
-                        // not implemented yet
-                        state = read_byte_from_printer((char *) &nL); 
+                        state = read_byte_from_printer((char *) &nL); // Always 2 
                         if (state == 0) break;
-                        state = read_byte_from_printer((char *) &nH); 
+                        state = read_byte_from_printer((char *) &nH); // Always 0
                         if (state == 0) break;
                         state = read_byte_from_printer((char *) &mL); 
                         if (state == 0) break;
-                        state = read_byte_from_printer((char *) &mH); 
+                        state = read_byte_from_printer((char *) &mH);
+                        thisDefaultUnit = defaultUnit;
+                        if (defaultUnit == 0) thisDefaultUnit = printerdpiv / 360; // Default for command is 1/360 inch units
+                        ypos2 = margintopp + ((mH * 256) + mL) * thisDefaultUnit;
+                        // RWAP ignore if movement is more than 179/360" upwards
+                        // RWAP ignore if command would move upwards after graphics command sent on current line, or above where graphics have 
+                        // previously been printed.
+                        ypos = ypos2;
+                        test_for_new_paper();
                         break;
                     case 'v': 
                         // 27 40 118 nL nH mL mH Set relative vertical print position
-                        // not implemented yet
-                        state = read_byte_from_printer((char *) &nL); 
+                        state = read_byte_from_printer((char *) &nL); // Always 2 
                         if (state == 0) break;
-                        state = read_byte_from_printer((char *) &nH); 
+                        state = read_byte_from_printer((char *) &nH); // Always 0
                         if (state == 0) break;
                         state = read_byte_from_printer((char *) &mL); 
                         if (state == 0) break;
                         state = read_byte_from_printer((char *) &mH); 
+                        thisDefaultUnit = defaultUnit;
+                        if (defaultUnit == 0) thisDefaultUnit = printerdpiv / 360; // Default for command is 1/360 inch units
+                        if (mH > 127) {
+                            // Handle negative movement
+                            mH = 127 - mH;
+                        }
+                        ypos2 = ypos + ((mH * 256) + mL) * thisDefaultUnit;
+                        // ignore if movement is more than 179/360" upwards
+                        // ignore if command would move upwards after graphics command sent on current line, or above where graphics have 
+                        // previously been printed.
+                        if (ypos2 < margintopp) {
+                            // No action
+                        } else {
+                            ypos = ypos2;
+                            test_for_new_paper();
+                        }
                         break;
                     case 'U': 
                         // 27 40 85 nL nH m Set unit
-                        // not implemented yet
-                        state = read_byte_from_printer((char *) &nL); 
+                        state = read_byte_from_printer((char *) &nL); // Always 1 
                         if (state == 0) break;
-                        state = read_byte_from_printer((char *) &nH); 
+                        state = read_byte_from_printer((char *) &nH); // Always 0 
                         if (state == 0) break;
-                        state = read_byte_from_printer((char *) &m); 
+                        state = read_byte_from_printer((char *) &m);
+                        defaultUnit = (m / 3600) * printerdpiv; // set default unit to m/3600 inches
                         break;
                     case 'i': 
                         // ESC ( i 01 00 n  Select microweave print mode
@@ -1857,7 +1899,7 @@ main_loop_for_printing:
                     // not implemented yet
                     state = read_byte_from_printer((char *) &nL);
                     state = read_byte_from_printer((char *) &nH);
-                    xpos = ((nH * 256) + nL) * (dpih / 60) + marginleftp;
+                    xpos = ((nH * 256) + nL) * (printerdpih / 60) + marginleftp;
                     break;
                 case 'r':   
                     // ESC r n Set printing colour (n=0-7) 
@@ -2197,7 +2239,7 @@ main_loop_for_printing:
                 case 'l':    // ESC l m set the left margin m in characters
                     state = read_byte_from_printer((char *) &xd);
                     marginleft = (int) xd;
-                    marginleftp = (dpih / cpi) * marginleft;  // rand in pixels
+                    marginleftp = (printerdpih / cpi) * marginleft;  // rand in pixels
                     // von links
                     // Wenn Marginleft ausserhalb des bereiches dann auf 0 setzen
                     // (fehlerbehandlung)
@@ -2210,7 +2252,7 @@ main_loop_for_printing:
                         // maximum 32 tabs are allowed last
                         // tab is always 0 to finish list
                         state = read_byte_from_printer((char *) &xd);
-                        xd = (dpih / cpi) * xd; // each tab is specified in number of characters in current character pitch
+                        xd = (printerdpih / cpi) * xd; // each tab is specified in number of characters in current character pitch
                         if (i > 0 && xd < hTabulators[i-1]) {
                             // Value less than previous tab setting ends the settings like NUL
                             xd = 0;
@@ -2277,7 +2319,7 @@ main_loop_for_printing:
                 case 'Q':    // ESC Q m set the right margin
                     state = read_byte_from_printer((char *) &xd);
                     marginright = (int) xd;
-                    marginrightp = (dpih / cpi) * marginright;  // rand in pixels
+                    marginrightp = (printerdpih / cpi) * marginright;  // rand in pixels
                     // von links
                     break;
                 case 'J':    // ESC J m Forward paper feed m/180 inches (ESC/P2)
@@ -2586,21 +2628,27 @@ main_loop_for_printing:
                         break;
                     case 'C': 
                         // 27 40 67 nL nH mL mH Set page length in defined unit
-                        // not implemented yet
-                        state = read_byte_from_printer((char *) &nL); 
+                        // page size not implemented yet
+                        state = read_byte_from_printer((char *) &nL); // always 2
                         if (state == 0) break;
-                        state = read_byte_from_printer((char *) &nH); 
+                        state = read_byte_from_printer((char *) &nH); // always 0
                         if (state == 0) break;
                         state = read_byte_from_printer((char *) &mL); 
                         if (state == 0) break;
-                        state = read_byte_from_printer((char *) &mH); 
+                        state = read_byte_from_printer((char *) &mH);
+                        thisDefaultUnit = defaultUnit;
+                        if (defaultUnit == 0) thisDefaultUnit = printerdpiv / 360; // Default for command is 1/360 inch units
+                        // pageLength = ((mH * 256) + mL) * thisDefaultUnit;
+                        ypos = 0;
+                        margintopp = 0;
+                        marginbottomp = 8417;
                         break;
                     case 'c': 
                         // 27 40 67 nL nH tL tH bL bH Set page format
-                        // not implemented yet
-                        state = read_byte_from_printer((char *) &nL); 
+                        // top and bottom margins not implemented yet
+                        state = read_byte_from_printer((char *) &nL); // always 4 
                         if (state == 0) break;
-                        state = read_byte_from_printer((char *) &nH); 
+                        state = read_byte_from_printer((char *) &nH); // always 0
                         if (state == 0) break;
                         state = read_byte_from_printer((char *) &tL); 
                         if (state == 0) break;
@@ -2608,38 +2656,67 @@ main_loop_for_printing:
                         if (state == 0) break;
                         state = read_byte_from_printer((char *) &bL); 
                         if (state == 0) break;
-                        state = read_byte_from_printer((char *) &bH); 
+                        state = read_byte_from_printer((char *) &bH);
+                        thisDefaultUnit = defaultUnit;
+                        if (defaultUnit == 0) thisDefaultUnit = printerdpiv / 360; // Default for command is 1/360 inch units
+                        margintopp = ((tH * 256) + tL) * thisDefaultUnit;
+                        marginbottomp = ((bH * 256) + bL) * thisDefaultUnit;
+                        if (marginbottomp > 22 * printerdpih) bottomp = 22 * printerdpih; // Max 22 inches
+                        ypos = 0;
+                        // cancel top and bottom margins (margintopp and marginbottomp - to be implemented)                            
                         break;
                     case 'V': 
                         // 27 40 86 nL nH mL mH Set absolute vertical print position
-                        // not implemented yet
-                        state = read_byte_from_printer((char *) &nL); 
+                        state = read_byte_from_printer((char *) &nL); // Always 2 
                         if (state == 0) break;
-                        state = read_byte_from_printer((char *) &nH); 
+                        state = read_byte_from_printer((char *) &nH); // Always 0
                         if (state == 0) break;
                         state = read_byte_from_printer((char *) &mL); 
                         if (state == 0) break;
-                        state = read_byte_from_printer((char *) &mH); 
+                        state = read_byte_from_printer((char *) &mH);
+                        thisDefaultUnit = defaultUnit;
+                        if (defaultUnit == 0) thisDefaultUnit = printerdpiv / 360; // Default for command is 1/360 inch units
+                        ypos2 = margintopp + ((mH * 256) + mL) * thisDefaultUnit;
+                        // RWAP ignore if movement is more than 179/360" upwards
+                        // RWAP ignore if command would move upwards after graphics command sent on current line, or above where graphics have 
+                        // previously been printed.
+                        ypos = ypos2;
+                        test_for_new_paper();
                         break;
                     case 'v': 
                         // 27 40 118 nL nH mL mH Set relative vertical print position
-                        // not implemented yet
-                        state = read_byte_from_printer((char *) &nL); 
+                        state = read_byte_from_printer((char *) &nL); // Always 2 
                         if (state == 0) break;
-                        state = read_byte_from_printer((char *) &nH); 
+                        state = read_byte_from_printer((char *) &nH); // Always 0
                         if (state == 0) break;
                         state = read_byte_from_printer((char *) &mL); 
                         if (state == 0) break;
                         state = read_byte_from_printer((char *) &mH); 
+                        thisDefaultUnit = defaultUnit;
+                        if (defaultUnit == 0) thisDefaultUnit = printerdpiv / 360; // Default for command is 1/360 inch units
+                        if (mH > 127) {
+                            // Handle negative movement
+                            mH = 127 - mH;
+                        }
+                        ypos2 = ypos + ((mH * 256) + mL) * thisDefaultUnit;
+                        // ignore if movement is more than 179/360" upwards
+                        // ignore if command would move upwards after graphics command sent on current line, or above where graphics have 
+                        // previously been printed.
+                        if (ypos2 < margintopp) {
+                            // No action
+                        } else {
+                            ypos = ypos2;
+                            test_for_new_paper();
+                        }
                         break;
                     case 'U': 
                         // 27 40 85 nL nH m Set unit
-                        // not implemented yet
-                        state = read_byte_from_printer((char *) &nL); 
+                        state = read_byte_from_printer((char *) &nL); // Always 1 
                         if (state == 0) break;
-                        state = read_byte_from_printer((char *) &nH); 
+                        state = read_byte_from_printer((char *) &nH); // Always 0 
                         if (state == 0) break;
-                        state = read_byte_from_printer((char *) &m); 
+                        state = read_byte_from_printer((char *) &m);
+                        defaultUnit = (m / 3600) * printerdpiv; // set default unit to m/3600 inches
                         break;
                     case 't': 
                         // 27 40 116 nL nH d1 d2 d3 Assign character table
@@ -2845,16 +2922,46 @@ main_loop_for_printing:
                     break;
                 case 'O':    // Cancel bottom margin Cancels the top and bottom
                     // margin settings
-                    // not implemented yet
+                    margintopp = 0;
+                    marginbottomp = 8417;
                     break;
-                case '$':    // Set absolute horizontal print position 0 = nH
-                    // = 127 0 = nL = 255 (horizontal position) =
-                    // ((nH ?256) + nL) ?(1/60 inch) + (left margin) 
-                    // ESC $ nL nH
-                    // not implemented yet
+                case '$':    // Set absolute horizontal print position ESC $ nL nH
                     state = read_byte_from_printer((char *) &nL);
+                    if (state == 0) break;
                     state = read_byte_from_printer((char *) &nH);
-                    xpos = ((nH * 256) + nL) * (dpih / 60) + marginleftp;
+                    if (state == 0) break;
+                    thisDefaultUnit = defaultUnit;
+                    if (defaultUnit == 0) thisDefaultUnit = printerdpih / 60; // Default for command is 1/180 inch units in LQ mode
+                    xpos2 = ((nH * 256) + nL) * thisDefaultUnit + marginleftp;
+                    if (xpos2 > marginrightp) {
+                        // No action
+                    } else {
+                        xpos = xpos2;
+                    }                        
+                    break;
+                case '\':   // Set relative horizonal print position ESC \ nL nH
+                    state = read_byte_from_printer((char *) &nL); // always 2
+                    if (state == 0) break;
+                    state = read_byte_from_printer((char *) &nH); // always 0
+                    if (state == 0) break;
+                    thisDefaultUnit = defaultUnit;
+                    if (defaultUnit == 0) {
+                        if (letterQuality == 1) {
+                            thisDefaultUnit = printerdpih / 180; // Default for command is 1/180 inch units in LQ mode
+                        } else {
+                            thisDefaultUnit = printerdpih / 120; // Default for command is 1/120 inch units in draft mode
+                        }
+                    }
+                    if (nH > 127) {
+                        // Handle negative movement
+                        nH = 127 - nH;
+                    }
+                    xpos2 = xpos + ((nH * 256) + nL) * thisDefaultUnit;
+                    if (xpos2 < marginleftp || xpos2 > marginrightp) {
+                        // No action
+                    } else {
+                        xpos = xpos2;
+                    }
                     break;
                 case '6':    // ESC 6 Enable printing of upper control codes
                     if (italic == 0 ) {
