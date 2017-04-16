@@ -20,18 +20,16 @@
 
 // Set page size for bitmap to A4 (8.27 x 11.69 inches).
 // DIN A4 has a width 210 mm and height of 297 mm .
-// the needles have a distance of 72dpi 
-// 240dpi resolution from left to right
-// 216dpi top down
-// so this defines an DIN A4 Paper having pageSetWidth x pageSetHeightpixels (width x height)
-// Allow for max 720 dpi
-// Check values - surely for ESC/P (360dpi max) they should be:
-// 360 x 8.27 = 2978   x   360 x 11.69 = 4209 ? so for 720dpi support we need to increase to 
-// 720 x 8.27 = 5955   x   720 x 11.69 = 8417
-int escp2 = 1;              // Use ESC/P2 or just ESC/P support (DPI differences)
-int pageSetWidth = 1984;
-int pageSetHeight = 2525;
-unsigned char printermemory[1984 * 2525 * 3]; // Allow 3 bytes per pixel
+// On original 9 pin (ESC/P) printers, the needles have a distance of 72dpi 
+// 240dpi horizontal resolution and 216dpi vertical resolution
+// Was 240 x 8.27 = 1924    x   216 x 11.69 = 2525
+// However 24 pin (ESC/P2) printers support up to 720dpi x 720dpi
+// giving 720 x 8.27 = 5954   x   720 x 11.69 = 8417
+int printerdpih = 720;
+int printerdpiv = 720;
+int pageSetWidth = 5954;
+int pageSetHeight = 8417;
+unsigned char printermemory[5955 * 8417 * 3]; // Allow 3 bytes per pixel
 
 unsigned int page = 0;
 char filenameX[1000];
@@ -379,13 +377,18 @@ void putpixelbig(int xpos, int ypos, float hwidth, float vdith)
     }
 }
 
-int cpi = 12;
-int pitch = 12; //Same like cpi but will retain its value when condensed printing is switched on
-int line_spacing = (int) 180 * 1 / 6;       // normally 1/6 inch line spacing - (float) 30*((float)pitch/(float)cpi);
+int cpi = 10; // PICA is standard
+int pitch = 10; //Same like cpi but will retain its value when condensed printing is switched on
+int line_spacing = (int) 720 * 1 / 6;           // normally 1/6 inch line spacing - (float) 30*((float)pitch/(float)cpi);
 int marginleft = 0, marginright = 99;       // in characters
-int marginleftp = 0, marginrightp = 1984;   // in pixels
-int dpih = 240, dpiv = 216;                 // resolution in dpi
+int marginleftp = 0, marginrightp = 5954;   // in pixels
+int cdpih = 120; // fixed dots per inch used for printing characters
+int cdpiv = 144; // fixed dots per inch used for printing characters
+int cpih = 10; // Default is PICA
+int cpiv = 6; // Default font height in cpi (default line spacing is 1/6" inch too)
+int dpih = 180, dpiv = 180;                 // resolution in dpi for ESC/P2 printers
 int needles = 24;                           // number of needles
+int letterQuality = 0;                      // LQ Mode?
 int rows = 0;
 double xpos = 0, ypos = 0;                  // position of print head
 
@@ -482,7 +485,7 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
     unsigned int xd, repeater, command, dataCount;
     signed int parameter;
     int xpos2;
-    unsigned char seedrow[1984 * 4];
+    unsigned char seedrow[5954 * 4];
     int moveSize = 1; // Set by MOVEXDOT or MOVEXBYTE
     if (compressMode == 3) {
         // Delta Row Compression
@@ -534,7 +537,7 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
                     for (xByte = 0; xByte < 8; xByte++) {
                         xpos2 = printColour * pageSetWidth + xpos;
                         if (xd & 128) {
-                            putpixel(display, xpos, ypos, 0x00000000);
+                            putpixelbig(xpos, ypos, hPixelWidth, vPixelWidth);
                             if (compressMode == 3) {
                                 // for ESC.3 Delta Row also copy bytes to seedrow for current colour
                                 if (xpos < pageSetWidth) seedrow[xpos2] = 1;
@@ -564,7 +567,7 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
                     for (xByte = 0; xByte < 8; xByte++) {
                         xpos2 = printColour * pageSetWidth + xpos;
                         if (xd & 128) {
-                            putpixel(display, xpos, ypos, 0x00000000);
+                            putpixelbig(xpos, ypos, hPixelWidth, vPixelWidth);
                             if (compressMode == 3) {
                                 // for ESC.3 Delta Row also copy bytes to seedrow for current colour
                                 if (xpos < pageSetWidth) seedrow[xpos2] = 1;
@@ -636,7 +639,7 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
                     for (xByte = 0; xByte < 8; xByte++) {
                         xpos2 = printColour * pageSetWidth + xpos;
                         if (xd & 128) {
-                            putpixel(display, xpos, ypos, 0x00000000);
+                            putpixelbig(xpos, ypos, hPixelWidth, vPixelWidth);
                             if (compressMode == 3) {
                                 // for ESC.3 Delta Row also copy bytes to seedrow for current colour
                                 if (xpos < pageSetWidth) seedrow[xpos2] = 1;
@@ -666,7 +669,7 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
                     for (xByte = 0; xByte < 8; xByte++) {
                         xpos2 = printColour * pageSetWidth + xpos;
                         if (xd & 128) {
-                            putpixel(display, xpos, ypos, 0x00000000);
+                            putpixelbig(xpos, ypos, hPixelWidth, vPixelWidth);
                             if (compressMode == 3) {
                                 // for ESC.3 Delta Row also copy bytes to seedrow for current colour
                                 if (xpos < pageSetWidth) seedrow[xpos2] = 1;
@@ -736,7 +739,7 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
             for (printColour = 0; printColour < 5; printColour++) {
                 xpos = 0;
                 for (xpos2 = printColour * pageSetWidth; xpos2 < (printColour+1) * pageSetWidth; xpos2++) {
-                    if (seedrow[xpos2] == 1) putpixel(display, xpos, ypos, 0x00000000);
+                    if (seedrow[xpos2] == 1) putpixelbig(xpos, ypos, hPixelWidth, vPixelWidth);
                     xpos = xpos + hPixelWidth;
                 }
             }
@@ -783,7 +786,7 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
             for (printColour = 0; printColour < 5; printColour++) {
                 xpos = 0;
                 for (xpos2 = printColour * pageSetWidth; xpos2 < (printColour+1) * pageSetWidth; xpos2++) {
-                    if (seedrow[xpos2] == 1) putpixel(display, xpos, ypos, 0x00000000);
+                    if (seedrow[xpos2] == 1) putpixelbig(xpos, ypos, hPixelWidth, vPixelWidth);
                     xpos = xpos + hPixelWidth;
                 }
             }
@@ -809,7 +812,10 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
                 if (sdlon == 1) {
                     // Clear display
                     for (xpos = 0; xpos < pageSetWidth; xpos++) {
-                        putpixel(display, xpos, ypos, 0x00FFFFFF);
+                        colour = printColour;
+                        printColour = 7; // White
+                        putpixelbig(xpos, ypos, hPixelWidth, vPixelWidth);
+                        printColour = colour;
                     }
                 }
                 // Copy all other seed data across to row on page
@@ -818,7 +824,7 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
                     if (printColour != colour) {
                         xpos = 0;
                         for (xpos2 = printColour * pageSetWidth; xpos2 < (printColour+1) * pageSetWidth; xpos2++) {
-                            if (seedrow[xpos2] == 1) putpixel(display, xpos, ypos, 0x00000000);
+                            if (seedrow[xpos2] == 1) putpixelbig(xpos, ypos, hPixelWidth, vPixelWidth);
                             xpos = xpos + hPixelWidth;
                         }
                     }
@@ -853,42 +859,6 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
     
   raus_tiff_delta_print:
     printColour = existingColour;
-    return;
-}
-
-void
-_8pin_line_bitmap_print_72dpi(int dotColumns, float hPixelWidth, float vPixelWidth,
-           float xzoom, float yzoom, int adjacentDot)
-{
-    // bitmap graphics printing - prints bytes vertically
-    int opr, fByte, j;
-    unsigned int xd, repeater;
-
-    test_for_new_paper();
-    for (opr = 0; opr < dotColumns; opr++) {
-        // timeout
-        state = 0;
-        clock_gettime(CLOCK_REALTIME, &tvx);
-        startzeit = tvx.tv_sec;
-        while (state == 0) {
-            state = read_byte_from_printer((char *) &xd);  // byte1
-            clock_gettime(CLOCK_REALTIME, &tvx);
-            if (((tvx.tv_sec - startzeit) >= timeout) && (state == 0)) goto raus_8p_72dpi;
-        }
-        if ((dotColumns - opr) == 3) opr = opr; // SASCHA - what is this intended to do?
-        for (fByte = 0; fByte < 8; fByte++) {
-            if (xd & 128) {
-                if ((adjacentDot == 0) && (precedingDot(xpos, ypos + fByte * dpiv / 72) == 1)) {
-                    // Miss out second of two consecutive horizontal dots
-                } else {
-                    putpixelbig(xpos, ypos + fByte * dpiv / 72, 1, 1);
-                }
-            }
-            xd = xd << 1;
-        }
-        xpos = xpos + hPixelWidth;
-    }
-  raus_8p_72dpi:
     return;
 }
 
@@ -930,7 +900,7 @@ _8pin_line_bitmap_print(int dotColumns, float hPixelWidth, float vPixelWidth,
 }
 
 void
-_9pin_line_bitmap_print_72dpi(int dotColumns, float hPixelWidth, float vPixelWidth,
+_9pin_line_bitmap_print(int dotColumns, float hPixelWidth, float vPixelWidth,
      float xzoom, float yzoom, int adjacentDot)
 {
     // bitmap graphics printing - prints bytes vertically - special case for ESC ^ command
@@ -948,10 +918,10 @@ _9pin_line_bitmap_print_72dpi(int dotColumns, float hPixelWidth, float vPixelWid
         }
         for (xByte = 0; xByte < 8; xByte++) {
             if (xd & 128) {
-                if ((adjacentDot == 0) && (precedingDot(xpos, ypos + xByte * dpiv / 72) == 1)) {
+                if ((adjacentDot == 0) && (precedingDot(xpos, ypos + xByte * vPixelWidth) == 1)) {
                     // Miss out second of two consecutive horizontal dots
                 } else {
-                    putpixelbig(xpos, ypos + xByte * dpiv / 72, 1, 1);
+                    putpixelbig(xpos, ypos + xByte * vPixelWidth, hPixelWidth, vPixelWidth);
                 }
             }            
             xd = xd << 1;
@@ -966,10 +936,10 @@ _9pin_line_bitmap_print_72dpi(int dotColumns, float hPixelWidth, float vPixelWid
             if (((tvx.tv_sec - startzeit) >= timeout) && (state == 0)) goto raus_9p;
         }
         if (xd & 1) {
-            if ((adjacentDot == 0) && (precedingDot(xpos, ypos + 9 * dpiv / 72) == 1)) {
+            if ((adjacentDot == 0) && (precedingDot(xpos, ypos + 9 * vPixelWidth) == 1)) {
                 // Miss out second of two consecutive horizontal dots
             } else {
-                putpixelbig(xpos, ypos + 9 * dpiv / 72, 1, 1);
+                putpixelbig(xpos, ypos + 9 * vPixelWidth, hPixelWidth, vPixelWidth);
             }
         }         
         xpos = xpos + hPixelWidth;
@@ -989,6 +959,7 @@ _24pin_line_bitmap_print(int dotColumns, float hPixelWidth, float vPixelWidth,
     double ypos2;
     test_for_new_paper();
     for (opr = 0; opr < dotColumns; opr++) {
+        // print 6 bytes (6 x 8 dots) per column
         for (fByte = 0; fByte < 4; fByte++) {
             ypos2 = ypos + fByte * (8 * vPixelWidth);
             state = 0;
@@ -1002,10 +973,10 @@ _24pin_line_bitmap_print(int dotColumns, float hPixelWidth, float vPixelWidth,
             }
             for (xByte = 0; xByte < 8; xByte++) {
                 if (xd & 128) {
-                    if ((adjacentDot == 0) && (precedingDot(xpos, ypos2 + xByte) == 1)) {
+                    if ((adjacentDot == 0) && (precedingDot(xpos, ypos2 + xByte * vPixelWidth) == 1)) {
                         // Miss out second of two consecutive horizontal dots
                     } else {
-                        putpixel(display, xpos, ypos2 + xByte, 0x00000000);
+                        putpixelbig(xpos, ypos + xByte * vPixelWidth, hPixelWidth, vPixelWidth);
                     }
                 }                 
                 xd = xd << 1;
@@ -1028,8 +999,9 @@ _48pin_line_bitmap_print(int dotColumns, float hPixelWidth, float vPixelWidth,
     double ypos2;
     test_for_new_paper();
     for (opr = 0; opr < dotColumns; opr++) {
+        // print 6 bytes (6 x 8 dots) per column
         for (fByte = 0; fByte < 7; fByte++) {
-            ypos2 = ypos + fByte * (4 * vPixelWidth); // Reduced to 4 x vPixelWidth to allow for 48 pins
+            ypos2 = ypos + fByte * (8 * vPixelWidth);
             state = 0;
             clock_gettime(CLOCK_REALTIME, &tvx);
             startzeit = tvx.tv_sec;
@@ -1041,10 +1013,10 @@ _48pin_line_bitmap_print(int dotColumns, float hPixelWidth, float vPixelWidth,
             }
             for (xByte = 0; xByte < 8; xByte++) {
                 if (xd & 128) {
-                    if ((adjacentDot == 0) && (precedingDot(xpos, ypos2 + xByte) == 1)) {
+                    if ((adjacentDot == 0) && (precedingDot(xpos, ypos2 + xByte * vPixelWidth) == 1)) {
                         // Miss out second of two consecutive horizontal dots
                     } else {
-                        putpixel(display, xpos, ypos2 + xByte, 0x00000000);
+                        putpixelbig(xpos, ypos2 + xByte * vPixelWidth, hPixelWidth, vPixelWidth);
                     }
                 }
                 xd = xd << 1;
@@ -1090,7 +1062,7 @@ _line_raster_print(int bandHeight, int dotColumns, float hPixelWidth, float vPix
                             if (((tvx.tv_sec - startzeit) >= timeout) && (state == 0)) goto raus_rasterp;
                         }
                         for (xByte = 0; xByte < 8; xByte++) {
-                            if (xd & 128) putpixel(display, xpos, ypos2, 0x00000000);
+                            if (xd & 128) putpixelbig(xpos, ypos2, hPixelWidth, vPixelWidth);
                             xd = xd << 1;
                             xpos = xpos + hPixelWidth;
                         }
@@ -1110,7 +1082,7 @@ _line_raster_print(int bandHeight, int dotColumns, float hPixelWidth, float vPix
                     }
                     for (j = 0; j < repeater; j++) {
                         for (xByte = 0; xByte < 8; xByte++) {
-                            if (xd & 128) putpixel(display, xpos, ypos2, 0x00000000);
+                            if (xd & 128) putpixelbig(xpos, ypos2, hPixelWidth, vPixelWidth);
                             xd = xd << 1;
                             xpos = xpos + hPixelWidth;
                         }
@@ -1130,7 +1102,7 @@ _line_raster_print(int bandHeight, int dotColumns, float hPixelWidth, float vPix
                     if (((tvx.tv_sec - startzeit) >= timeout) && (state == 0)) goto raus_rasterp;
                 }
                 for (xByte = 0; xByte < 8; xByte++) {
-                    if (xd & 128) putpixel(display, xpos, ypos2, 0x00000000);
+                    if (xd & 128) putpixelbig(xpos, ypos2, hPixelWidth, vPixelWidth);
                     xd = xd << 1;
                     xpos = xpos + hPixelWidth;
                 }
@@ -1164,6 +1136,7 @@ int openfont(char *filename)
 int direction_of_char = 0;
 int printcharx(unsigned char chr)
 {
+    if (endlesstext==1) return 0;
     unsigned int adressOfChar = 0;
     unsigned int chr2;
     int i, fByte;
@@ -1173,11 +1146,29 @@ int printcharx(unsigned char chr)
     unsigned char xd;
     float divisor=1;
     int yposoffset=0;
+    int charHeight = 24; // 24 pin printer - characters 24 pixels high
+    float fontDotWidth, fontDotHeight;
 
     chr2 = (unsigned int) chr;
     adressOfChar = chr2 << 4;  // Multiply with 16 to Get Adress
-    hPixelWidth = ((float) dpih / (float) cpi) / 8;
-    vPixelWidth = ((float) dpiv / (float) cpi * 2) / 18;  
+    hPixelWidth = (float) printerdpih / (float) cdpih;
+    vPixelWidth = (float) printerdpiv / (float) cdpiv; 
+    
+    // Take into account the expected size of the font for a 24 pin printer:
+    // Font size is 8 x 16:
+    
+    if (letterQuality == 1) {
+        // LETTER QUALITY 360 x 144 dpi
+        // -- uses (360 / cpi) x 24 pixel font - default is 10 cpi (36 dots), 30 cpi (10 dots), 15 cpi (24 dots)
+        fontDotWidth = hPixelWidth * ((360 / cpi) / 8);
+        fontDotHeight = vPixelWidth * charHeight / 16;
+    } else {
+        // DRAFT QUALITY 120 x 144 dpi
+        // -- uses (120 / cpi) x 24 pixel font - default is 10 cpi (12 dots), 12 cpi (10 dots), 15 cpi (8 dots)
+        fontDotWidth = hPixelWidth * ((120 / cpi) / 8);
+        fontDotHeight = vPixelWidth * charHeight / 16;
+    }
+    
     // eigentlich sollte 
     // das 16 sein da
     // jedes zeichen 16
@@ -1195,34 +1186,40 @@ int printcharx(unsigned char chr)
         italiccount=1;
     }
     test_for_new_paper();
+    
+    // SUPERSCRIPT / SUBSCRIPT 360 x 144 dpi
+    // -- uses (360 / cpi) x 16 pixel font - default is 10 cpi (36 dots), 12 cpi (30 dots), 15 cpi (24 dots)    
     if (superscript==1) { 
-        divisor=2.0/3.0;
-        vPixelWidth=vPixelWidth*divisor;
+        fontDotWidth = hPixelWidth * ((360 / cpi) / 8);
+        fontDotHeight = vPixelWidth;
         yposoffset=2;
     } else if (subscript==1) { 
-        divisor=2.0/3.0;
-        vPixelWidth=vPixelWidth*divisor;
+        fontDotHeight = vPixelWidth;
         yposoffset=8;
     }
+    
+    hPixelWidth = fontDotWidth;
+    vPixelWidth = fontDotHeight;
+    
     if ((double_width == 1) || (double_width_single_line == 1)) {
         hPixelWidth = hPixelWidth * 2;
     }
     if (double_height == 1) {
         // If ESC w sent on first line of page does NOT affect the first line
         // Move ypos back up page to allow base line of character to remain the same
-        if ((chr!=32) && (ypos >= 16 * vPixelWidth)) {
+        if ((chr!=32) && (ypos >= charHeight * vPixelWidth)) {
             vPixelWidth = vPixelWidth * 2;
-            yposoffset = yposoffset - (16 * vPixelWidth); // Height of one character
+            yposoffset = yposoffset - (charHeight * vPixelWidth); // Height of one character at double height = 2 x 24
         }
     }
     if (quad_height == 1) {
         // Star NL-10 ENLARGE command - does NOT affect the first line
         // Move ypos back up page to allow base line of character to remain the same
-        if ((chr!=32) && (ypos >= 48 * vPixelWidth)) {
+        if ((chr!=32) && (ypos >= charHeight * 3 * vPixelWidth)) {
             vPixelWidth = vPixelWidth * 4;
-            yposoffset = yposoffset - (48 * vPixelWidth); // Height of one character
+            yposoffset = yposoffset - (charHeight * 3 * vPixelWidth); // Height of one character at quad height = 4 x 24
         }
-    }    
+    }     
 
     if (direction_of_char == 1) {
         for (i = 0; i <= 15; i++) {
@@ -1686,11 +1683,12 @@ main_loop_for_printing:
 
                 switch (xd) {
                 case '@':    // ESC @ Initialize
-                    cpi                    =  12;
-                    pitch                  =  12;
-                    line_spacing           = (int) 180 * 1 / 6; // normally 1/6 inch line spacing
+                    cpi                    =  10;
+                    pitch                  =  10;
+                    line_spacing           = (int) 720 * 1 / 6; // normally 1/6 inch line spacing
                     dpih                   = 240; 
                     dpiv                   = 216;
+                    letterQuality          =   0;
                     printColour            =   0;
                     bold                   =   0;
                     italic                 =   0;
@@ -1733,24 +1731,24 @@ main_loop_for_printing:
                     
                     switch (v) {
                         case 5:
-                            vPixelWidth = (float) dpiv / (float) 720;
+                            vPixelWidth = (float) printerdpiv / (float) 720;
                             break;
                         case 10:
-                            vPixelWidth = (float) dpiv / (float) 360;
+                            vPixelWidth = (float) printerdpiv / (float) 360;
                             break;                                
                         case 20:
-                            vPixelWidth = (float) dpiv / (float) 180;
+                            vPixelWidth = (float) printerdpiv / (float) 180;
                             break;                                
                     }
                     switch (h) {
                         case 5:
-                            hPixelWidth = (float) dpih / (float) 720;
+                            hPixelWidth = (float) printerdpih / (float) 720;
                             break;
                         case 10:
-                            hPixelWidth = (float) dpih / (float) 360;
+                            hPixelWidth = (float) printerdpih / (float) 360;
                             break;                                
                         case 20:
-                            hPixelWidth = (float) dpih / (float) 180;
+                            hPixelWidth = (float) printerdpih / (float) 180;
                             break;                                
                     }
                     dotColumns = nH << 8;
@@ -1776,7 +1774,7 @@ main_loop_for_printing:
                     break;
                 case '+':    // Set n/360-inch line spacing ESC + n
                     state = read_byte_from_printer((char *) &xd);
-                    line_spacing = (int) 180 * xd / 360;
+                    line_spacing = (int) 720 * xd / 360;
                     break; 
                 case '(':    
                     state = read_byte_from_printer((char *) &nL);
@@ -1904,8 +1902,12 @@ main_loop_for_printing:
                     print_character(xd);
                 } else {                
                     xposold = xpos;
-                    hPixelWidth = ((float) dpih / (float) cpi) / 8;
-                    vPixelWidth = ((float) dpiv / (float) cpi * 2) / 18;
+                    hPixelWidth = (float) printerdpih / (float) cdpih;
+                    if (letterQuality == 1) {
+                        hPixelWidth = hPixelWidth * ((360 / cpi) / 8);
+                    } else {
+                        hPixelWidth = hPixelWidth * ((120 / cpi) / 8);
+                    }
                     xpos = xpos - hPixelWidth * 8;
                     if (xpos < 0) xpos = xposold;
                 }
@@ -2098,13 +2100,21 @@ main_loop_for_printing:
                 break;
             case 255:
                 xposold = xpos;
-                hPixelWidth = ((float) dpih / (float) cpi) / 8;
-                vPixelWidth = ((float) dpiv / (float) cpi * 2) / 18;
+                hPixelWidth = (float) printerdpih / (float) cdpih;
+                vPixelWidth = (float) printerdpiv / (float) cdpiv; 
+                int charHeight = 24;
+                if (letterQuality == 1) {
+                    hPixelWidth = hPixelWidth * ((360 / cpi) / 8);
+                    vPixelWidth = vPixelWidth * charHeight / 16;
+                } else {
+                    hPixelWidth = hPixelWidth * ((120 / cpi) / 8);
+                    vPixelWidth = vPixelWidth * charHeight / 16;
+                }                
                 xpos = xpos + hPixelWidth * 8;
                 if (xpos > ((pageSetWidth - 1) - vPixelWidth * 16)) {
                     xpos = marginleftp;
                     ypos = ypos + vPixelWidth * 16;
-                }      // 24=8*216/72
+                }
                 break;
             default:
                 print_character(xd);
@@ -2117,11 +2127,12 @@ main_loop_for_printing:
 
                 switch (xd) {
                 case '@':    // ESC @ Initialize
-                    cpi                    =  12;
-                    pitch                  =  12;
-                    line_spacing           = (int) 180 * 1 / 6; // normally 1/6 inch line spacing
+                    cpi                    =  10;
+                    pitch                  =  10;
+                    line_spacing           = (int) 720 * 1 / 6; // normally 1/6 inch line spacing
                     dpih                   = 240; 
                     dpiv                   = 216;
+                    letterQuality          =   0;
                     printColour            =   0;
                     bold                   =   0;
                     italic                 =   0;
@@ -2146,29 +2157,29 @@ main_loop_for_printing:
                     vTabulatorsCancelled   =   0;                    
                     break;                        
                 case '0':    //Select 1/8 inch line spacing 
-                    line_spacing = (int) 180 * 1 / 8;
+                    line_spacing = (int) 720 * 1 / 8;
                     break;
                 case '1':    //Select 7/72 inch line spacing 
-                    line_spacing = (int) 180 * 7 / 72;
+                    line_spacing = (int) 720 * 7 / 72;
                     break;
                 case '2':    // Select 1/6-inch line spacing
-                    line_spacing = (int) 180 * 1 / 6;
+                    line_spacing = (int) 720 * 1 / 6;
                     break;
                 case '3':    // Set n/180-inch line spacing ESC 3 n
                     state = read_byte_from_printer((char *) &xd);
-                    line_spacing = (int) 180 * xd / 180;
+                    line_spacing = (int) 720 * xd / 180;
                     break;                        
                 case '+':    // Set n/360-inch line spacing ESC + n
                     state = read_byte_from_printer((char *) &xd);
-                    line_spacing = (int) 180 * xd / 360;
+                    line_spacing = (int) 720 * xd / 360;
                     break;                        
                 case 'A':    // ESC A n Set n/60 inches or
                     // n/72 inches line spacing (24 or 9 pin printer)
                     state = read_byte_from_printer((char *) &xd);
                     if (needles == 9) {
-                        line_spacing = (int) 180 * xd / 60;
+                        line_spacing = (int) 720 * xd / 60;
                     } else {  // needles must be 24 here
-                        line_spacing = (int) 180 * xd / 72;
+                        line_spacing = (int) 720 * xd / 72;
                     }
                     break;
                 case 'M':    // ESC M Select 10.5-point, 12-cpi
@@ -2269,20 +2280,12 @@ main_loop_for_printing:
                     marginrightp = (dpih / cpi) * marginright;  // rand in pixels
                     // von links
                     break;
-                case 'J':    // ESC J m Forward paper feed m/180 inches or
-                    // m/216 inches (24 or 9 pin printer)
+                case 'J':    // ESC J m Forward paper feed m/180 inches (ESC/P2)
                     state = read_byte_from_printer((char *) &xd);
-                    if (needles == 9) {
-                        // go xp/216
-                        ypos = ypos + (int) xd *dpiv / 216;  // here ste
-                        // printf("forward %d/180 \n",xd);
-                    } else {  // needles must be 24 here
-                        // go xp/180
-                        ypos = ypos + (int) xd *dpiv / 180;
-                    }
+                    ypos = ypos + (int) xd * printerdpiv / 180;
+                    test_for_new_paper();
                     break;
                 case 'K':    // ESC K nL nH d1 d2...dk Select 60 dpi graphics
-                    needles = 9;
                     // Pixels
                     state = read_byte_from_printer((char *) &nL);
                     if (state == 0) break;
@@ -2290,14 +2293,9 @@ main_loop_for_printing:
                     if (state == 0) break;
                     dotColumns = nH << 8;
                     dotColumns = dotColumns | nL;
-                    hPixelWidth = (float) dpih / (float) 60;
-                    if (escp2) {
-                        vPixelWidth = (float) dpiv / (float) 60;
-                        _8pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
-                    } else {
-                        vPixelWidth = (float) dpiv / (float) 72;
-                        _8pin_line_bitmap_print_72dpi(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
-                    }
+                    hPixelWidth = (float) printerdpih / (float) 60;
+                    vPixelWidth = (float) printerdpiv / (float) 60; // ESCP2 definition - ESCP was 72 dpi 
+                    _8pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
                     // if (sdlon) SDL_UpdateRect(display, 0, 0, 0, 0);
                     break;
                 case 'L':    // ESC L nL nH d1 d2...dk Select 120 dpi graphics
@@ -2309,14 +2307,9 @@ main_loop_for_printing:
                     if (state == 0) break;
                     dotColumns = nH << 8;
                     dotColumns = dotColumns | nL;
-                    hPixelWidth = (float) dpih / (float) 120;
-                    if (escp2) {
-                        vPixelWidth = (float) dpiv / (float) 60;
-                        _8pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
-                    } else {
-                        vPixelWidth = (float) dpiv / (float) 72;
-                        _8pin_line_bitmap_print_72dpi(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
-                    }
+                    hPixelWidth = (float) printerdpih / (float) 120;
+                    vPixelWidth = (float) printerdpiv / (float) 60;  // ESCP2 definition - ESCP was 72 dpi
+                    _8pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
                     break;
                 case 'Y':    // ESC Y nL nH d1 d2...dk Select 120 dpi double-speed graphics
                     // Adjacent printing disabled
@@ -2328,14 +2321,9 @@ main_loop_for_printing:
                     if (state == 0) break;
                     dotColumns = nH << 8;
                     dotColumns = dotColumns | nL;
-                    hPixelWidth = (float) dpih / (float) 120;
-                    if (escp2) {
-                        vPixelWidth = (float) dpiv / (float) 60;
-                        _8pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 0);
-                    } else {
-                        vPixelWidth = (float) dpiv / (float) 72;
-                        _8pin_line_bitmap_print_72dpi(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 0);
-                    }
+                    hPixelWidth = (float) printerdpih / (float) 120;
+                    vPixelWidth = (float) printerdpiv / (float) 60;  // ESCP2 definition - ESCP was 72 dpi
+                    _8pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 0);
                     break;                        
                 case 'Z':    // ESC Z nL nH d1 d2...dk Select 240 dpi graphics
                     needles = 9;
@@ -2346,15 +2334,9 @@ main_loop_for_printing:
                     if (state == 0) break;
                     dotColumns = nH << 8;
                     dotColumns = dotColumns | nL;
-                    hPixelWidth = (float) dpih / (float) 240;
-                    if (escp2) {
-                        vPixelWidth = (float) dpiv / (float) 60;
-                        _8pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
-                    } else {
-                        vPixelWidth = (float) dpiv / (float) 72;
-                        // NB Sascha - vPixelwidth was vPixelWidth = (float) dpiv / (float) (216/1) for some reason
-                        _8pin_line_bitmap_print_72dpi(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
-                    }
+                    hPixelWidth = (float) printerdpih / (float) 240;
+                    vPixelWidth = (float) printerdpiv / (float) 60; // ESCP2 definition - ESCP was 72 dpi
+                    _8pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
                     break;
                 case '^': 
                     // ESC ^ m nL nH d1 d2 d3 d...  Select 60 oe 120 dpi, 9 pin graphics
@@ -2364,12 +2346,12 @@ main_loop_for_printing:
                     if (state == 0) break;
                     state = read_byte_from_printer((char *) &nH); 
                     if (state == 0) break;
-                    hPixelWidth = (float) dpih / (float) 60;
-                    if (m == 1) hPixelWidth = (float) dpih / (float) 120;
-                    vPixelWidth = (float) dpiv / (float) 72;
+                    hPixelWidth = (float) printerdpih / (float) 60;
+                    if (m == 1) hPixelWidth = (float) printerdpih / (float) 120;
+                    vPixelWidth = (float) printerdpiv / (float) 72;
                     dotColumns = nH << 8;
                     dotColumns = dotColumns | nL;
-                    _9pin_line_bitmap_print_72dpi(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
+                    _9pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
                     break;                    
                 case 'S':    // ESC S n select superscript/subscript printing
                     state = read_byte_from_printer((char *) &nL);
@@ -2400,11 +2382,15 @@ main_loop_for_printing:
                     subscript = 0;
                     superscript=0;
                     break;
-                case 'x':    // Select LQ or draft ESC x n n can be 0 or 48 for
-                    // draft and 1 or 49 for letter quality
-                    // not implemented yet
-                    // maybe not really needed
+                case 'x':    // Select LQ or draft ESC x n 
+                    // n can be 0 or 48 for draft
+                    // and 1 or 49 for letter quality
                     state = read_byte_from_printer((char *) &nL);
+                    if ((nL==1) || (nL==49)) {
+                        letterQuality = 1;
+                    } else if ((nL== 0) || (nL==48)) {
+                        letterQuality = 0;
+                    }
                     break;
                 case 'p':    // ESC p n Turn proportional mode on/off off--> n=0
                     // or 48 on --> n=1 or 49
@@ -2930,175 +2916,135 @@ main_loop_for_printing:
                     switch (m) {
                     case 0:  // 60 x 60 dpi 9 needles
                         needles = 9;
-                        hPixelWidth = (float) dpih / (float) 60;
-                        if (escp2) {
-                            vPixelWidth = (float) dpiv / (float) 60;
-                            _8pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
-                        } else {
-                            vPixelWidth = (float) dpiv / (float) 72;
-                            _8pin_line_bitmap_print_72dpi(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
-                        }                            
+                        hPixelWidth = (float) printerdpih / (float) 60;
+                        vPixelWidth = (float) printerdpiv / (float) 60;  // ESCP2 definition - ESCP was 72 dpi
+                        _8pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
                         break;
                     case 1:  // 120 x 60 dpi 9 needles
                         needles = 9;
-                        hPixelWidth = (float) dpih / (float) 120;
-                        if (escp2) {
-                            vPixelWidth = (float) dpiv / (float) 60;
-                            _8pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
-                        } else {
-                            vPixelWidth = (float) dpiv / (float) 72;
-                            _8pin_line_bitmap_print_72dpi(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
-                        }                            
+                        hPixelWidth = (float) printerdpih / (float) 120;
+                        vPixelWidth = (float) printerdpiv / (float) 60;  // ESCP2 definition - ESCP was 72 dpi
+                        _8pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
                         break;
                     case 2:
                         // 120 x 60 dpi 9 needles - not adjacent dot printing
                         needles = 9;
-                        hPixelWidth = (float) dpih / (float) 120;
-                        if (escp2) {
-                            vPixelWidth = (float) dpiv / (float) 60;
-                            _8pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 0);
-                        } else {
-                            vPixelWidth = (float) dpiv / (float) 72;
-                            _8pin_line_bitmap_print_72dpi(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 0);
-                        }                            
+                        hPixelWidth = (float) printerdpih / (float) 120;
+                        vPixelWidth = (float) printerdpiv / (float) 60;  // ESCP2 definition - ESCP was 72 dpi
+                        _8pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 0);
                         break;
                     case 3:
                         // 240 x 60 dpi 9 needles - not adjacent dot printing 
                         needles = 9;
-                        hPixelWidth = (float) dpih / (float) 240;
-                        if (escp2) {
-                            vPixelWidth = (float) dpiv / (float) 60;
-                            _8pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 0);
-                        } else {
-                            vPixelWidth = (float) dpiv / (float) 72;
-                            _8pin_line_bitmap_print_72dpi(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 0);
-                        } 
+                        hPixelWidth = (float) printerdpih / (float) 240;
+                        vPixelWidth = (float) printerdpiv / (float) 60;  // ESCP2 definition - ESCP was 72 dpi
+                        _8pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 0);
                         break;
                     case 4:  // 80 x 60 dpi 9 needles
                         needles = 9;
-                        hPixelWidth = (float) dpih / (float) 80;
-                        if (escp2) {
-                            vPixelWidth = (float) dpiv / (float) 60;
-                            _8pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
-                        } else {
-                            vPixelWidth = (float) dpiv / (float) 72;
-                            _8pin_line_bitmap_print_72dpi(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
-                        } 
+                        hPixelWidth = (float) printerdpih / (float) 80;
+                        vPixelWidth = (float) printerdpiv / (float) 60; // ESCP2 definition - ESCP was 72 dpi
+                        _8pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
                         break;
                     case 5:  // 72 x 72 dpi 9 needles - unused in ESC/P2
                         needles = 9;
-                        hPixelWidth = (float) dpih / (float) 72;
-                        if (escp2) {
-                            vPixelWidth = (float) dpiv / (float) 60;
-                            _8pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
-                        } else {
-                            vPixelWidth = (float) dpiv / (float) 72;
-                            _8pin_line_bitmap_print_72dpi(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
-                        } 
+                        hPixelWidth = (float) printerdpih / (float) 72;
+                        vPixelWidth = (float) printerdpiv / (float) 60; // ESCP2 definition - ESCP was 72 dpi
+                        _8pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
                         break;
                     case 6:  // 90 x 60 dpi 9 needles
                         needles = 9;
-                        hPixelWidth = (float) dpih / (float) 90;
-                        if (escp2) {
-                            vPixelWidth = (float) dpiv / (float) 60;
-                            _8pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
-                        } else {
-                            vPixelWidth = (float) dpiv / (float) 72;
-                            _8pin_line_bitmap_print_72dpi(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
-                        } 
+                        hPixelWidth = (float) printerdpih / (float) 90;
+                        vPixelWidth = (float) printerdpiv / (float) 60; // ESCP2 definition - ESCP was 72 dpi
+                        _8pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
                         break;
                     case 7:  // 144 x 72 dpi 9 needles (ESC/P only)
                         needles = 9;
-                        hPixelWidth = (float) dpih / (float) 144;
-                        if (escp2) {
-                            vPixelWidth = (float) dpiv / (float) 60;
-                            _8pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
-                        } else {
-                            vPixelWidth = (float) dpiv / (float) 72;
-                            _8pin_line_bitmap_print_72dpi(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
-                        } 
+                        hPixelWidth = (float) printerdpih / (float) 144;
+                        vPixelWidth = (float) printerdpiv / (float) 60; // ESCP2 definition - ESCP was 72 dpi
+                        _8pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
                         break;
                     case 32:  // 60 x 180 dpi, 24 dots per column - row = 3 bytes
                         needles = 24;
-                        hPixelWidth = (float) dpih / (float) 60;
-                        vPixelWidth = (float) dpiv / (float) 180;  // Das sind hier 1.2 
+                        hPixelWidth = (float) printerdpih / (float) 60;
+                        vPixelWidth = (float) printerdpiv / (float) 180;  // Das sind hier 1.2 
                         // Pixels
                         _24pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
                         break;
                     case 33:  // 120 x 180 dpi, 24 dots per column - row = 3 bytes
                         needles = 24;
-                        hPixelWidth = (float) dpih / (float) 120;
-                        vPixelWidth = (float) dpiv / (float) 180;  // Das sind hier 1.2 
+                        hPixelWidth = (float) printerdpih / (float) 120;
+                        vPixelWidth = (float) printerdpiv / (float) 180;  // Das sind hier 1.2 
                         // Pixels
                         _24pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
                         break;
                     case 35:  // Resolution not verified possibly 240x216 sein
                         needles = 24;
-                        hPixelWidth = (float) dpih / (float) 240;
-                        vPixelWidth = (float) dpiv / (float) 180;  // Das sind hier 1.2 
+                        hPixelWidth = (float) printerdpih / (float) 240;
+                        vPixelWidth = (float) printerdpiv / (float) 180;  // Das sind hier 1.2 
                         // Pixels
                         _24pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
                         break;
                     case 38:  // 90 x 180 dpi, 24 dots per column - row = 3 bytes
                         needles = 24;
-                        hPixelWidth = (float) dpih / (float) 90;
-                        vPixelWidth = (float) dpiv / (float) 180;  // Das sind hier 1.2 
+                        hPixelWidth = (float) printerdpih / (float) 90;
+                        vPixelWidth = (float) printerdpiv / (float) 180;  // Das sind hier 1.2 
                         // Pixels
                         _24pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
                         break;
                     case 39:  // 180 x 180 dpi, 24 dots per column - row = 3 bytes
                         needles = 24;
-                        hPixelWidth = (float) dpih / (float) 180;
-                        vPixelWidth = (float) dpiv / (float) 180;  // Das sind hier 1.2 
+                        hPixelWidth = (float) printerdpih / (float) 180;
+                        vPixelWidth = (float) printerdpiv / (float) 180;  // Das sind hier 1.2 
                         // Pixels
                         _24pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
                         break;
                     case 40:  // 360 x 180 dpi, 24 dots per column - row = 3 bytes - not adjacent dot
                         needles = 24;
-                        hPixelWidth = (float) dpih / (float) 360;
-                        vPixelWidth = (float) dpiv / (float) 180;  // Das sind hier 1.2 
+                        hPixelWidth = (float) printerdpih / (float) 360;
+                        vPixelWidth = (float) printerdpiv / (float) 180;  // Das sind hier 1.2 
                         // Pixels
                         _24pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 0);
                         break;
                     case 64:  // 60 x 60 dpi, 48 dots per column - row = 6 bytes
                         needles = 48;
-                        hPixelWidth = (float) dpih / (float) 60;
-                        vPixelWidth = (float) dpiv / (float) 60;  // Das sind hier 1.2 
+                        hPixelWidth = (float) printerdpih / (float) 60;
+                        vPixelWidth = (float) printerdpiv / (float) 60;  // Das sind hier 1.2 
                         // Pixels
                         _48pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
                         break;
                     case 65:  // 120 x 120 dpi, 48 dots per column - row = 6 bytes
                         needles = 48;
-                        hPixelWidth = (float) dpih / (float) 120;
-                        vPixelWidth = (float) dpiv / (float) 120;  // Das sind hier 1.2 
+                        hPixelWidth = (float) printerdpih / (float) 120;
+                        vPixelWidth = (float) printerdpiv / (float) 120;  // Das sind hier 1.2 
                         // Pixels
                         _48pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
                         break;
                     case 70:  // 90 x 180 dpi, 48 dots per column - row = 6 bytes
                         needles = 48;
-                        hPixelWidth = (float) dpih / (float) 90;
-                        vPixelWidth = (float) dpiv / (float) 180;  // Das sind hier 1.2 
+                        hPixelWidth = (float) printerdpih / (float) 90;
+                        vPixelWidth = (float) printerdpiv / (float) 180;  // Das sind hier 1.2 
                         // Pixels
                         _48pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
                         break;
                     case 71:  // 180 x 360 dpi, 48 dots per column - row = 6 bytes
                         needles = 48;
-                        hPixelWidth = (float) dpih / (float) 180;
-                        vPixelWidth = (float) dpiv / (float) 360;  // Das sind hier 1.2 
+                        hPixelWidth = (float) printerdpih / (float) 180;
+                        vPixelWidth = (float) printerdpiv / (float) 360;  // Das sind hier 1.2 
                         // Pixels
                         _48pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
                         break;
                     case 72:  // 360 x 360 dpi, 48 dots per column - row = 6 bytes - no adjacent dot printing
                         needles = 48;
-                        hPixelWidth = (float) dpih / (float) 360;
-                        vPixelWidth = (float) dpiv / (float) 360;  // Das sind hier 1.2 
+                        hPixelWidth = (float) printerdpih / (float) 360;
+                        vPixelWidth = (float) printerdpiv / (float) 360;  // Das sind hier 1.2 
                         // Pixels
                         _48pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 0);
                         break;
                     case 73:  // 360 x 360 dpi, 48 dots per column - row = 6 bytes
                         needles = 48;
-                        hPixelWidth = (float) dpih / (float) 360;
-                        vPixelWidth = (float) dpiv / (float) 360;  // Das sind hier 1.2 
+                        hPixelWidth = (float) printerdpih / (float) 360;
+                        vPixelWidth = (float) printerdpiv / (float) 360;  // Das sind hier 1.2 
                         // Pixels
                         _48pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
                         break;
