@@ -409,9 +409,10 @@ int dotColumns;                             // number of dot columns for bit ima
 
 // Tabs
 double hTabulators[35];                     // List of tabulators
-double vTabulators[20];                     // List of vertical tabulators
+double vTabulators[16 * 8];                 // List of vertical tabulators
 int vTabulatorsSet = 0;                     // Used by VT command to check if any vertical tabs have been set since printer reset
 int vTabulatorsCancelled = 0;               // Used by VT command to check if all vertical tabs have been cancelled
+int vFUChannel = 0;                         // VFU Channel to use
 int curHtab = 0;                            // next active horizontal tab
 int curVtab = 0;                            // next active vertical tab
 
@@ -1277,6 +1278,60 @@ int printcharx(unsigned char chr)
     xpos = xpos + hPixelWidth * 8;
 }
 
+int print_space(int showUnderline)
+{
+    int i, fByte;
+    unsigned char xd;
+    int yposoffset=0;
+    int charHeight = 24; // 24 pin printer - characters 24 pixels high
+    float fontDotWidth, fontDotHeight;
+
+    hPixelWidth = (float) printerdpih / (float) cdpih;
+    vPixelWidth = (float) printerdpiv / (float) cdpiv; 
+    
+    // Take into account the expected size of the font for a 24 pin printer:
+    // Font size is 8 x 16:
+    
+    if (letterQuality == 1) {
+        // LETTER QUALITY 360 x 144 dpi
+        // -- uses (360 / cpi) x 24 pixel font - default is 10 cpi (36 dots), 30 cpi (10 dots), 15 cpi (24 dots)
+        fontDotWidth = hPixelWidth * ((360 / cpi) / 8);
+        fontDotHeight = vPixelWidth * charHeight / 16;
+    } else {
+        // DRAFT QUALITY 120 x 144 dpi
+        // -- uses (120 / cpi) x 24 pixel font - default is 10 cpi (12 dots), 12 cpi (10 dots), 15 cpi (8 dots)
+        fontDotWidth = hPixelWidth * ((120 / cpi) / 8);
+        fontDotHeight = vPixelWidth * charHeight / 16;
+    }
+    
+    test_for_new_paper();
+        
+    hPixelWidth = fontDotWidth;
+    vPixelWidth = fontDotHeight;
+    
+    if ((double_width == 1) || (double_width_single_line == 1)) {
+        hPixelWidth = hPixelWidth * 2;
+    }    
+
+    // Because we are only printing spaces - we can ignore it if there is no underlining
+    if ((showUnderline==1) && (underlined==1)) {
+        for (i = 0; i <= 15; i++) {
+            xd = 0;  // Nominally just space
+            if ((i==14) && ((single_continuous_line==1) ||  (single_broken_line))  ) xd=255;
+            if ((i==13) && ((double_continuous_line==1) ||  (double_broken_line))  ) xd=255;
+            if ((i==15) && ((double_continuous_line==1) ||  (double_broken_line))  ) xd=255;
+            if (xd > 0) {
+                for (fByte = 0; fByte < 8; fByte++) {
+                    if (xd & 128) putpixelbig(xpos + fByte * hPixelWidth, ypos + yposoffset + i * vPixelWidth,
+                                    hPixelWidth, vPixelWidth);
+                    xd = xd << 1;
+                }
+            }
+        }
+    }
+    xpos = xpos + hPixelWidth * 8;
+}
+
 void print_character(unsigned char xChar)
 {
     printcharx(xChar);  
@@ -1642,8 +1697,8 @@ main_loop_for_printing:
     if (sdlon) erasesdl();
     erasepage();
     // Clear tab marks
-    for (i = 0; i < 32; i++) hTabulators[i] = 0;
-    for (i = 0; i < 16; i++) vTabulators[i] = 0;
+    for (i = 0; i < 32; i++) hTabulators[i] = (printerdpih / cpi) * (8*i); // Default is every 8 characters
+    for (i = 0; i < (16 * 8); i++) vTabulators[i] = 0;
 
     i = 0;
     xd = 0;
@@ -1671,6 +1726,7 @@ main_loop_for_printing:
                 ypos = ypos + line_spacing;
                 xpos = marginleftp;
                 double_width_single_line = 0;
+                test_for_new_paper();
                 break;
             case 12:    // form feed (neues blatt) 
                 ypos = pageSetHeight;  // just put it in an out of area position
@@ -1991,6 +2047,7 @@ main_loop_for_printing:
                     ypos = ypos + line_spacing;
                     xpos = marginleftp;
                     double_width_single_line = 0;
+                    test_for_new_paper();
                     break;
                 }
                 break;
@@ -2000,11 +2057,11 @@ main_loop_for_printing:
                 } else {
                     xpos = marginleftp;
                     curVtab = -1;
-                    for (i = 0; i < 16; i++) {
+                    for (i = (vFUChannel * 16); i < (vFUChannel * 16) + 16; i++) {
                         if (vTabulators[i] <= ypos) curVtab = i;
                     }
                     curVtab++;
-                    if (curVtab > 15 || vTabulators[curVtab] == 0) {
+                    if (curVtab > (vFUChannel * 16) + 15 || vTabulators[curVtab] == 0) {
                         // If all tabs cancelled then acts as a CR
                         // If no tabs have been set since turn on / ESC @ command, then acts like LF
                         // If tabs have been set but no more vertical tabs, then acts like FF
@@ -2215,13 +2272,13 @@ main_loop_for_printing:
                     state = read_byte_from_printer((char *) &xd);
                     line_spacing = (int) 720 * xd / 360;
                     break;                        
-                case 'A':    // ESC A n Set n/60 inches or
-                    // n/72 inches line spacing (24 or 9 pin printer)
+                case 'A':    // ESC A n Set n/60 inches (24 pin printer - ESC/P2 or ESC/P) or
+                    // n/72 inches line spacing (9 pin printer)
                     state = read_byte_from_printer((char *) &xd);
                     if (needles == 9) {
-                        line_spacing = (int) 720 * xd / 60;
-                    } else {  // needles must be 24 here
                         line_spacing = (int) 720 * xd / 72;
+                    } else {  // needles must be 24 here
+                        line_spacing = (int) 720 * xd / 60;
                     }
                     break;
                 case 'M':    // ESC M Select 10.5-point, 12-cpi
@@ -2266,18 +2323,18 @@ main_loop_for_printing:
                     }                        
                     break;
                 case 'B':    // ESC B n1,n2,n3 .... nk NUL, vertical tab
-                    // positions n1..nk
+                    // positions n1..nk - only affects vFUChannel 0
                     i = 0;
                     vTabulatorsSet = 1; 
                     while ((xd != 0) && (i < 16)) {
-                        // maximum 16 tabs are allowed last
-                        // tab is always 0 to finish list
+                        // maximum 16 tabs are allowed
+                        // last tab is always 0 to finish list
                         state = read_byte_from_printer((char *) &xd);
                         vTabulators[i] = xd * line_spacing;
                         i++;
                     }
                     if (i == 0 && xd == 0) {
-                        // ESC B NUL cancels all vertical tabs
+                        // ESC B NUL cancels all vertical tabs in vFUChannel 0
                         for (i = 0; i < 16; i++) vTabulators[i] = 0;
                         vTabulatorsCancelled = 1;
                     }
@@ -2286,26 +2343,25 @@ main_loop_for_printing:
                     // positions n1..nk
                     i = 0;
                     vTabulatorsSet = 1;
+                    // m specifies set of vertical tabs (0 to 7) - default is 0 (used by ESC B)
                     state = read_byte_from_printer((char *) &m);
-                    while ((xd != 0) && (i < 8)) {
-                        // maximum 8 tabs are allowed last
-                        // tab is always 0 to finish list
-                        // Not yet implemented
+                    while ((xd != 0) && (i < 16)) {
+                        // maximum 16 vertical tabs are allowed in each VFU Channel
+                        // Last tab is always 0 to finish list
                         state = read_byte_from_printer((char *) &xd);
-                        // vTabulators[i] = xd * line_spacing;
+                        vTabulators[(m * 16) + i] = xd * line_spacing;
                         i++;
                     }
                     if (i == 0 && xd == 0) {
-                        // ESC B NUL cancels all vertical tabs
-                        for (i = 0; i < 16; i++) vTabulators[i] = 0;
+                        // ESC b NUL cancels all vertical tabs in current vFUChannel
+                        for (i = 0; i < 16; i++) vTabulators[(m * 16) + i] = 0;
                         vTabulatorsCancelled = 1;
                     }                        
                     break;
                 case '/':    // ESC / m, set vertical tab channel
-                    // positions n1..nk
-                    // Not implemented
                     state = read_byte_from_printer((char *) &m);
-                    break;                         
+                    vFUChannel = m;
+                    break;                        
                 case 'e':    // ESC e m n, set fixed tab increment
                     // positions n1..nk
                     // Not implemented yet
@@ -2759,7 +2815,7 @@ main_loop_for_printing:
                             // clear all user defined graphics - To be implemented
                             // Clear tab marks
                             for (i = 0; i < 32; i++) hTabulators[i] = 0;
-                            for (i = 0; i < 16; i++) vTabulators[i] = 0;
+                            for (i = 0; i < (8 * 16); i++) vTabulators[i] = 0;
                             microweave_printing = 0;
                             vTabulatorsCancelled = 0;
                             vTabulatorsSet = 0;
@@ -2869,9 +2925,19 @@ main_loop_for_printing:
                     break;                        
                 case 'f':
                     // ESC f m n Horizontal / Vertical Skip
-                    // not implemented yet
                     state = read_byte_from_printer((char *) &m);
                     state = read_byte_from_printer((char *) &nL);
+                    if (m == 0) {
+                        // print nL spaces in current pitch - use underline if set
+                        int k;
+                        for (k = 0; k < nL; k++) print_space(1);
+                    } else {
+                        // perform nL line feeds in current line spacing cancel double width printing set with SO or ESC SO
+                        ypos = ypos + (nL * line_spacing);
+                        xpos = marginleftp;
+                        double_width_single_line = 0;
+                        test_for_new_paper();
+                    }
                     break;
                 case 'c':
                     // ESC c nL nH Set Horizonal Motion Index (HMI)
@@ -2917,7 +2983,7 @@ main_loop_for_printing:
                     break;
                 case 'N':    // Set bottom margin ESC N n 0<n<=127 top-of-form
                     // position on the next page
-                    // not implemented yet
+                    // not implemented (continuous paper only) - ignored when printing on single sheets// not implemented yet
                     state = read_byte_from_printer((char *) &nL);
                     break;
                 case 'O':    // Cancel bottom margin Cancels the top and bottom
