@@ -69,10 +69,6 @@ int superscript            = 0;
 int subscript              = 0;
 int strikethrough          = 0;
 int overscore              = 0;
-int single_continuous_line = 0;
-int double_continuous_line = 0;
-int single_broken_line     = 0;
-int double_broken_line     = 0;
 int double_width           = 0;         //Double width printing
 int double_width_single_line = 0;
 int double_height          = 0;         //Double height printing
@@ -81,10 +77,11 @@ int outline_printing       = 0;         //Outline printing not yet implemeneted
 int shadow_printing        = 0;         //Shadow printing not yet implemented
 
 int print_controlcodes     = 0;
-int print_uppercontrolcodes  = 0;
+int print_uppercontrolcodes= 0;
 
 int graphics_mode          = 0;
 int microweave_printing    = 0;
+int multipoint_mode        = 0;
 
 int read_byte_from_printer(unsigned char *bytex)
 {
@@ -381,7 +378,7 @@ void putpixelbig(int xpos, int ypos, float hwidth, float vdith)
 
 int cpi = 10; // PICA is standard
 int pitch = 10; //Same like cpi but will retain its value when condensed printing is switched on
-int line_spacing = (int) 720 * 1 / 6;           // normally 1/6 inch line spacing - (float) 30*((float)pitch/(float)cpi);
+int line_spacing = (int) 720 * (1 / 6);     // normally 1/6 inch line spacing - (float) 30*((float)pitch/(float)cpi);
 int marginleft = 0, marginright = 99;       // in characters
 int marginleftp = 0, marginrightp = 5954;   // in pixels
 int margintopp = 0, marginbottomp = 8417;
@@ -392,9 +389,13 @@ int cpiv = 6; // Default font height in cpi (default line spacing is 1/6" inch t
 int dpih = 180, dpiv = 180;                 // resolution in dpi for ESC/P2 printers
 int needles = 24;                           // number of needles
 int letterQuality = 0;                      // LQ Mode?
+int proportionalSpacing = 0;                // Proportional Mode (not implemented)
 int rows = 0;
 double xpos = 0, ypos = 0;                  // position of print head
 double xpos2 = 0, ypos2 = 0;                // position of print head
+
+float hmi = 720 * (36 / 360);              // pitch in inches per character.  Default is 36/360 * 720 = 10 cpi
+float chrSpacing = 0;                      // Inter-character spacing
 
 // ******bit images
 int m;                                      // Mode for bit images printing (m)
@@ -1155,12 +1156,13 @@ int printcharx(unsigned char chr)
     float divisor=1;
     int yposoffset=0;
     int charHeight = 24; // 24 pin printer - characters 24 pixels high
-    float fontDotWidth, fontDotHeight;
+    float fontDotWidth, fontDotHeight, character_spacing;
 
     chr2 = (unsigned int) chr;
     adressOfChar = chr2 << 4;  // Multiply with 16 to Get Adress
     hPixelWidth = (float) printerdpih / (float) cdpih;
-    vPixelWidth = (float) printerdpiv / (float) cdpiv; 
+    vPixelWidth = (float) printerdpiv / (float) cdpiv;
+    character_spacing = 0;
     
     // Take into account the expected size of the font for a 24 pin printer:
     // Font size is 8 x 16:
@@ -1170,11 +1172,13 @@ int printcharx(unsigned char chr)
         // -- uses (360 / cpi) x 24 pixel font - default is 10 cpi (36 dots), 30 cpi (10 dots), 15 cpi (24 dots)
         fontDotWidth = hPixelWidth * ((360 / cpi) / 8);
         fontDotHeight = vPixelWidth * charHeight / 16;
+        if (chrSpacing > 0) character_spacing = printerdpih * (chrSpacing / 180);
     } else {
         // DRAFT QUALITY 120 x 144 dpi
         // -- uses (120 / cpi) x 24 pixel font - default is 10 cpi (12 dots), 12 cpi (10 dots), 15 cpi (8 dots)
         fontDotWidth = hPixelWidth * ((120 / cpi) / 8);
         fontDotHeight = vPixelWidth * charHeight / 16;
+        if (chrSpacing > 0) character_spacing = printerdpih * (chrSpacing / 120);
     }
     
     // eigentlich sollte 
@@ -1211,6 +1215,7 @@ int printcharx(unsigned char chr)
     
     if ((double_width == 1) || (double_width_single_line == 1)) {
         hPixelWidth = hPixelWidth * 2;
+        character_spacing = character_spacing * 2;
     }
     if (double_height == 1) {
         // If ESC w sent on first line of page does NOT affect the first line
@@ -1232,18 +1237,19 @@ int printcharx(unsigned char chr)
     if (direction_of_char == 1) {
         for (i = 0; i <= 15; i++) {
             xd = fontx[adressOfChar + i];
-            if ((chr!=32) || (single_continuous_line==1) || (double_continuous_line==1)) {
-                if ((i==14) && (underlined==1)    && ((single_continuous_line==1) ||  (single_broken_line))  ) xd=255;
-                if ((i==13) && (underlined==1)    && ((double_continuous_line==1) ||  (double_broken_line))  ) xd=255;
-                if ((i==15) && (underlined==1)    && ((double_continuous_line==1) ||  (double_broken_line))  ) xd=255;
+            // TO BE UPDATED as Underlining etc covers spaces, and non-graphics characters
+            if ((underlined>0) || (strikethrough>0) || (overscore>0)) {
+                if ((i==14) && ((underlined==1) || (underlined==3)) ) xd=255;
+                if ((i==13) && ((underlined==2) || (underlined==4)) ) xd=255;
+                if ((i==15) && ((underlined==2) || (underlined==4)) ) xd=255;
 
-                if ((i==8 ) && (strikethrough==1) && ((single_continuous_line==1) ||  (single_broken_line))  ) xd=255;
-                if ((i==7 ) && (strikethrough==1) && ((double_continuous_line==1) ||  (double_broken_line))  ) xd=255;
-                if ((i==9 ) && (strikethrough==1) && ((double_continuous_line==1) ||  (double_broken_line))  ) xd=255;
+                if ((i==8 ) && ((strikethrough==1) || (strikethrough==3)) ) xd=255;
+                if ((i==7 ) && ((strikethrough==2) || (strikethrough==4)) ) xd=255;
+                if ((i==9 ) && ((strikethrough==2) || (strikethrough==4)) ) xd=255;
 
-                if ((i==1 ) && (overscore==1)     && ((single_continuous_line==1) ||  (single_broken_line))  ) xd=255;
-                if ((i==0 ) && (overscore==1)     && ((double_continuous_line==1) ||  (double_broken_line))  ) xd=255;
-                if ((i==3 ) && (overscore==1)     && ((double_continuous_line==1) ||  (double_broken_line))  ) xd=255;
+                if ((i==1 ) && ((overscore==1) || (overscore==3)) ) xd=255;
+                if ((i==0 ) && ((overscore==2) || (overscore==4)) ) xd=255;
+                if ((i==3 ) && ((overscore==2) || (overscore==4)) ) xd=255;
             }
 
             for (fByte = 0; fByte < 8; fByte++) {
@@ -1255,18 +1261,19 @@ int printcharx(unsigned char chr)
     } else {
         for (i = 0; i <= 15; i++) {
             xd = fontx[adressOfChar + i];
-            if ((chr!=32) || (single_continuous_line==1) || (double_continuous_line==1)) {
-                if ((i==14) && (underlined==1)    && ((single_continuous_line==1) ||  (single_broken_line))  ) xd=255;
-                if ((i==13) && (underlined==1)    && ((double_continuous_line==1) ||  (double_broken_line))  ) xd=255;
-                if ((i==15) && (underlined==1)    && ((double_continuous_line==1) ||  (double_broken_line))  ) xd=255;
-      
-                if ((i==8 ) && (strikethrough==1) && ((single_continuous_line==1) ||  (single_broken_line))  ) xd=255;
-                if ((i==7 ) && (strikethrough==1) && ((double_continuous_line==1) ||  (double_broken_line))  ) xd=255;
-                if ((i==9 ) && (strikethrough==1) && ((double_continuous_line==1) ||  (double_broken_line))  ) xd=255;
+            // TO BE UPDATED as Underlining etc covers spaces, and non-graphics characters
+            if ((underlined>0) || (strikethrough>0) || (overscore>0)) {
+                if ((i==14) && ((underlined==1) || (underlined==3)) ) xd=255;
+                if ((i==13) && ((underlined==2) || (underlined==4)) ) xd=255;
+                if ((i==15) && ((underlined==2) || (underlined==4)) ) xd=255;
 
-                if ((i==1 ) && (overscore==1)     && ((single_continuous_line==1) ||  (single_broken_line))  ) xd=255;
-                if ((i==0 ) && (overscore==1)     && ((double_continuous_line==1) ||  (double_broken_line))  ) xd=255;
-                if ((i==3 ) && (overscore==1)     && ((double_continuous_line==1) ||  (double_broken_line))  ) xd=255;
+                if ((i==8 ) && ((strikethrough==1) || (strikethrough==3)) ) xd=255;
+                if ((i==7 ) && ((strikethrough==2) || (strikethrough==4)) ) xd=255;
+                if ((i==9 ) && ((strikethrough==2) || (strikethrough==4)) ) xd=255;
+
+                if ((i==1 ) && ((overscore==1) || (overscore==3)) ) xd=255;
+                if ((i==0 ) && ((overscore==2) || (overscore==4)) ) xd=255;
+                if ((i==3 ) && ((overscore==2) || (overscore==4)) ) xd=255;
             }
             for (fByte = 0; fByte < 8; fByte++) {
                 if (xd & 001) putpixelbig(xpos + fByte * hPixelWidth+italiccount*(7-i),ypos + yposoffset+ i * vPixelWidth,
@@ -1275,7 +1282,35 @@ int printcharx(unsigned char chr)
             }
         }
     }
-    xpos = xpos + hPixelWidth * 8;
+    // Add the actual character width
+    xpos = xpos + (hPixelWidth * 8);
+    // Add any character spacing - taking account of any continuous line scoring of printing
+    if (character_spacing>0) {
+        if ((underlined==1) || (underlined==2) || (strikethrough==1) || (strikethrough==2) || (overscore==1) || (overscore==2)) {
+            for (i = 0; i <= 15; i++) {
+                xd = 0;
+                if ((i==14) && (underlined==1) ) xd=255;
+                if ((i==13) && (underlined==2) ) xd=255;
+                if ((i==15) && (underlined==2) ) xd=255;
+
+                if ((i==8 ) && (strikethrough==1) ) xd=255;
+                if ((i==7 ) && (strikethrough==2) ) xd=255;
+                if ((i==9 ) && (strikethrough==2) ) xd=255;
+
+                if ((i==1 ) && (overscore==1) ) xd=255;
+                if ((i==0 ) && (overscore==2) ) xd=255;
+                if ((i==3 ) && (overscore==2) ) xd=255;
+
+                if (xd) {
+                    putpixelbig(xpos, ypos + yposoffset + i * vPixelWidth,
+                                    character_spacing + boldoffset, vPixelWidth + boldoffset11);
+                }
+            }
+            
+        } else {
+            xpos = xpos + character_spacing;
+        }
+    }
 }
 
 int print_space(int showUnderline)
@@ -1284,24 +1319,35 @@ int print_space(int showUnderline)
     unsigned char xd;
     int yposoffset=0;
     int charHeight = 24; // 24 pin printer - characters 24 pixels high
-    float fontDotWidth, fontDotHeight;
+    float fontDotWidth, fontDotHeight, character_spacing;
+    int boldoffset = 0;
+    int boldoffset11= 0;     
 
     hPixelWidth = (float) printerdpih / (float) cdpih;
-    vPixelWidth = (float) printerdpiv / (float) cdpiv; 
+    vPixelWidth = (float) printerdpiv / (float) cdpiv;
+    character_spacing = 0;
     
     // Take into account the expected size of the font for a 24 pin printer:
     // Font size is 8 x 16:
-    
+    boldoffset11=0;
+    boldoffset=0;
+    if (bold == 1) {
+        boldoffset = (hPixelWidth + vPixelWidth) / 3;
+        boldoffset11=boldoffset;
+        //printf("%d\n", boldoffset);
+    }     
     if (letterQuality == 1) {
         // LETTER QUALITY 360 x 144 dpi
-        // -- uses (360 / cpi) x 24 pixel font - default is 10 cpi (36 dots), 30 cpi (10 dots), 15 cpi (24 dots)
+        // -- uses (360 / cpi) x 24 pixel font - default is 10 cpi (36 dots), 12 cpi (10 dots), 15 cpi (24 dots)
         fontDotWidth = hPixelWidth * ((360 / cpi) / 8);
         fontDotHeight = vPixelWidth * charHeight / 16;
+        if (chrSpacing > 0) character_spacing = printerdpih * (chrSpacing / 180);
     } else {
         // DRAFT QUALITY 120 x 144 dpi
         // -- uses (120 / cpi) x 24 pixel font - default is 10 cpi (12 dots), 12 cpi (10 dots), 15 cpi (8 dots)
         fontDotWidth = hPixelWidth * ((120 / cpi) / 8);
         fontDotHeight = vPixelWidth * charHeight / 16;
+        if (chrSpacing > 0) character_spacing = printerdpih * (chrSpacing / 180);
     }
     
     test_for_new_paper();
@@ -1311,25 +1357,61 @@ int print_space(int showUnderline)
     
     if ((double_width == 1) || (double_width_single_line == 1)) {
         hPixelWidth = hPixelWidth * 2;
+        character_spacing = character_spacing * 2;
     }    
 
     // Because we are only printing spaces - we can ignore it if there is no underlining
-    if ((showUnderline==1) && (underlined==1)) {
+    if ((showUnderline==1) && ((underlined>0) || (strikethrough>0) || (overscore>0))) {
         for (i = 0; i <= 15; i++) {
             xd = 0;  // Nominally just space
-            if ((i==14) && ((single_continuous_line==1) ||  (single_broken_line))  ) xd=255;
-            if ((i==13) && ((double_continuous_line==1) ||  (double_broken_line))  ) xd=255;
-            if ((i==15) && ((double_continuous_line==1) ||  (double_broken_line))  ) xd=255;
+            if ((i==14) && ((underlined==1) || (underlined==3)) ) xd=255;
+            if ((i==13) && ((underlined==2) || (underlined==4)) ) xd=255;
+            if ((i==15) && ((underlined==2) || (underlined==4)) ) xd=255;
+
+            if ((i==8 ) && ((strikethrough==1) || (strikethrough==3)) ) xd=255;
+            if ((i==7 ) && ((strikethrough==2) || (strikethrough==4)) ) xd=255;
+            if ((i==9 ) && ((strikethrough==2) || (strikethrough==4)) ) xd=255;
+
+            if ((i==1 ) && ((overscore==1) || (overscore==3)) ) xd=255;
+            if ((i==0 ) && ((overscore==2) || (overscore==4)) ) xd=255;
+            if ((i==3 ) && ((overscore==2) || (overscore==4)) ) xd=255;
+
             if (xd > 0) {
-                for (fByte = 0; fByte < 8; fByte++) {
-                    if (xd & 128) putpixelbig(xpos + fByte * hPixelWidth, ypos + yposoffset + i * vPixelWidth,
-                                    hPixelWidth, vPixelWidth);
-                    xd = xd << 1;
-                }
+                putpixelbig(xpos + fByte * hPixelWidth, ypos + yposoffset + i * vPixelWidth,
+                                hPixelWidth * 8, vPixelWidth);
             }
         }
     }
-    xpos = xpos + hPixelWidth * 8;
+
+    // Add the actual character width
+    xpos = xpos + (hPixelWidth * 8);
+    // Add any character spacing - taking account of any continuous line scoring of printing
+    if (character_spacing>0) {
+        if ((underlined==1) || (underlined==2) || (strikethrough==1) || (strikethrough==2) || (overscore==1) || (overscore==2)) {
+            for (i = 0; i <= 15; i++) {
+                xd = 0;
+                if ((i==14) && (underlined==1) ) xd=255;
+                if ((i==13) && (underlined==2) ) xd=255;
+                if ((i==15) && (underlined==2) ) xd=255;
+
+                if ((i==8 ) && (strikethrough==1) ) xd=255;
+                if ((i==7 ) && (strikethrough==2) ) xd=255;
+                if ((i==9 ) && (strikethrough==2) ) xd=255;
+
+                if ((i==1 ) && (overscore==1) ) xd=255;
+                if ((i==0 ) && (overscore==2) ) xd=255;
+                if ((i==3 ) && (overscore==2) ) xd=255;
+
+                if (xd) {
+                    putpixelbig(xpos, ypos + yposoffset + i * vPixelWidth,
+                                    character_spacing + boldoffset, vPixelWidth + boldoffset11);
+                }
+            }
+            
+        } else {
+            xpos = xpos + character_spacing;
+        }
+    }
 }
 
 void print_character(unsigned char xChar)
@@ -1748,10 +1830,14 @@ main_loop_for_printing:
                 case '@':    // ESC @ Initialize
                     cpi                    =  10;
                     pitch                  =  10;
-                    line_spacing           = (int) 720 * 1 / 6; // normally 1/6 inch line spacing
+                    multipoint_mode        =   0;
+                    hmi                    = printerdpih * (36 / 360); // Reset HMI
+                    line_spacing           = (int) printerdpiv * (1 / 6); // normally 1/6 inch line spacing
+                    chrSpacing             =   0;
                     dpih                   = 240; 
                     dpiv                   = 216;
                     letterQuality          =   0;
+                    proportionalSpacing    =   0;
                     printColour            =   0;
                     bold                   =   0;
                     italic                 =   0;
@@ -1760,10 +1846,6 @@ main_loop_for_printing:
                     subscript              =   0;
                     strikethrough          =   0;
                     overscore              =   0;
-                    single_continuous_line =   0;
-                    double_continuous_line =   0;
-                    single_broken_line     =   0;
-                    double_broken_line     =   0;
                     double_width           =   0;
                     double_width_single_line = 0;
                     double_height          =   0;
@@ -1837,7 +1919,7 @@ main_loop_for_printing:
                     break;
                 case '+':    // Set n/360-inch line spacing ESC + n
                     state = read_byte_from_printer((char *) &xd);
-                    line_spacing = (int) 720 * xd / 360;
+                    line_spacing = (int) printerdpiv * (xd / 360);
                     break; 
                 case '(':    
                     state = read_byte_from_printer((char *) &nL);
@@ -1948,14 +2030,19 @@ main_loop_for_printing:
                         break;
                     }
                     break;
-                case '$':    // Set absolute horizontal print position 0 = nH
-                    // = 127 0 = nL = 255 (horizontal position) =
-                    // ((nH ?256) + nL) ?(1/60 inch) + (left margin) 
-                    // ESC $ nL nH
-                    // not implemented yet
+                case '$':    // Set absolute horizontal print position ESC $ nL nH
                     state = read_byte_from_printer((char *) &nL);
+                    if (state == 0) break;
                     state = read_byte_from_printer((char *) &nH);
-                    xpos = ((nH * 256) + nL) * (printerdpih / 60) + marginleftp;
+                    if (state == 0) break;
+                    thisDefaultUnit = defaultUnit;
+                    if (defaultUnit == 0) thisDefaultUnit = printerdpih / 60; // Default for command is 1/180 inch units in LQ mode
+                    xpos2 = ((nH * 256) + nL) * thisDefaultUnit + marginleftp;
+                    if (xpos2 > marginrightp) {
+                        // No action
+                    } else {
+                        xpos = xpos2;
+                    }                        
                     break;
                 case 'r':   
                     // ESC r n Set printing colour (n=0-7) 
@@ -2114,17 +2201,21 @@ main_loop_for_printing:
             case 14:    // SO Shift Out (do nothing) Select double Width printing (for one line)
                 if (print_controlcodes) {
                     print_character(xd);
-                } else {                
-                    double_width_single_line = 1;
+                } else {
+                    hmi = printerdpih * (36 / 360); // Reset HMI
+                    if (multipoint_mode == 0) double_width_single_line = 1;
                 }
                 break;
             case 15:    // SI Shift In (do nothing) Condensed printing on
                 if (print_controlcodes) {
                     print_character(xd);
-                } else {                
-                    if (pitch==10) cpi=17.14;
-                    if (pitch==12) cpi=20;
-                    // Add for proportional font = 1/2 width
+                } else {
+                    hmi = printerdpih * (36 / 360); // Reset HMI
+                    if (multipoint_mode == 0) {                
+                        if (pitch==10) cpi=17.14;
+                        if (pitch==12) cpi=20;
+                        // Add for proportional font = 1/2 width - to be written
+                    }
                 }
                 break;
             case 16:    // DLE Data Link Escape (do nothing)
@@ -2141,6 +2232,7 @@ main_loop_for_printing:
                 if (print_controlcodes) {
                     print_character(xd);
                 } else {                
+                    hmi = printerdpih * (36 / 360); // Reset HMI
                     if (pitch==10) cpi=10;
                     if (pitch==12) cpi=12;
                     // Add for proportional font = full width
@@ -2161,6 +2253,8 @@ main_loop_for_printing:
                 } else {                
                     // Intended to turn off, stop or interrupt an ancillary device, or for
                     // any other device control function.
+                    // Also turns off double-width printing for one line
+                    hmi = printerdpih * (36 / 360); // Reset HMI
                     double_width_single_line = 0;
                 }
                 break;
@@ -2228,10 +2322,14 @@ main_loop_for_printing:
                 case '@':    // ESC @ Initialize
                     cpi                    =  10;
                     pitch                  =  10;
-                    line_spacing           = (int) 720 * 1 / 6; // normally 1/6 inch line spacing
+                    multipoint_mode        =   0;
+                    hmi                    = printerdpih * (36 / 360); // Reset HMI
+                    line_spacing           = (int) printerdpiv * (1 / 6); // normally 1/6 inch line spacing
+                    chrSpacing             =   0;
                     dpih                   = 240; 
                     dpiv                   = 216;
                     letterQuality          =   0;
+                    proportionalSpacing    =   0;
                     printColour            =   0;
                     bold                   =   0;
                     italic                 =   0;
@@ -2240,10 +2338,6 @@ main_loop_for_printing:
                     subscript              =   0;
                     strikethrough          =   0;
                     overscore              =   0;
-                    single_continuous_line =   0;
-                    double_continuous_line =   0;
-                    single_broken_line     =   0;
-                    double_broken_line     =   0;
                     double_width           =   0;
                     double_width_single_line = 0;
                     double_height          =   0;
@@ -2256,40 +2350,49 @@ main_loop_for_printing:
                     vTabulatorsCancelled   =   0;                    
                     break;                        
                 case '0':    //Select 1/8 inch line spacing 
-                    line_spacing = (int) 720 * 1 / 8;
+                    line_spacing = (int) printerdpiv * (1 / 8);
                     break;
                 case '1':    //Select 7/72 inch line spacing 
-                    line_spacing = (int) 720 * 7 / 72;
+                    line_spacing = (int) printerdpiv * (7 / 72);
                     break;
                 case '2':    // Select 1/6-inch line spacing
-                    line_spacing = (int) 720 * 1 / 6;
+                    line_spacing = (int) printerdpiv * (1 / 6);
                     break;
                 case '3':    // Set n/180-inch line spacing ESC 3 n
                     state = read_byte_from_printer((char *) &xd);
-                    line_spacing = (int) 720 * xd / 180;
+                    line_spacing = (int) printerdpiv * (xd / 180);
                     break;                        
                 case '+':    // Set n/360-inch line spacing ESC + n
                     state = read_byte_from_printer((char *) &xd);
-                    line_spacing = (int) 720 * xd / 360;
+                    line_spacing = (int) printerdpiv * (xd / 360);
                     break;                        
                 case 'A':    // ESC A n Set n/60 inches (24 pin printer - ESC/P2 or ESC/P) or
                     // n/72 inches line spacing (9 pin printer)
                     state = read_byte_from_printer((char *) &xd);
                     if (needles == 9) {
-                        line_spacing = (int) 720 * xd / 72;
+                        line_spacing = (int) printerdpiv * (xd / 72);
                     } else {  // needles must be 24 here
-                        line_spacing = (int) 720 * xd / 60;
+                        line_spacing = (int) printerdpiv * (xd / 60);
                     }
                     break;
                 case 'M':    // ESC M Select 10.5-point, 12-cpi
+                    // Note - if printer in proportional mode, only takes effect when exits proportional mode
+                    multipoint_mode = 0;
+                    hmi = printerdpih * (36 / 360); // Reset HMI
                     cpi = 12;
                     pitch=12;
                     break;                        
-                case 'P':    // ESC P Set 10 cpi
+                case 'P':     // ESC P Set 10.5-point, 10-cpi
+                    // Note - if printer in proportional mode, only takes effect when exits proportional mode
+                    multipoint_mode = 0;
+                    hmi = printerdpih * (36 / 360); // Reset HMI
                     cpi = 10;
                     pitch=10;
                     break;
                 case 'g':    // ESC g Select 10.5-point, 15-cpi
+                    // Note - if printer in proportional mode, only takes effect when exits proportional mode
+                    multipoint_mode = 0;
+                    hmi = printerdpih * (36 / 360); // Reset HMI
                     cpi = 15;
                     pitch=15;
                     break;
@@ -2363,10 +2466,30 @@ main_loop_for_printing:
                     vFUChannel = m;
                     break;                        
                 case 'e':    // ESC e m n, set fixed tab increment
-                    // positions n1..nk
-                    // Not implemented yet
                     state = read_byte_from_printer((char *) &m);
                     state = read_byte_from_printer((char *) &nL);
+                    int step = nL;
+                    if (m == 0) {
+                        // Set vertical tabs every n lines
+                        if (nL * line_spacing < pageSetHeight) {
+                            // maximum 16 tabs * 8 VFU Channels are allowed
+                            vTabulatorsSet = 1;
+                            for (m = 0; m < 8; m++) {
+                                for (i = 0; i < 16; i++) {
+                                    vTabulators[(m*16) + i] = nL * line_spacing;
+                                    nL = nL + step;
+                                }
+                            }
+                        }
+                    } else {
+                        // Set horizontal tabs every n characters in current pitch
+                        if ((cpi == 10) && (nL <=21) || (cpi == 12) && (nL <=25) || (cpi >= 15) && (nL <=36)) {
+                            for (i = 0; i < 32; i++) {
+                                hTabulators[i] = nL;
+                                nL = nL + step;
+                            }
+                        }
+                    }
                     break;
                 case 'a':    // ESC a n, set justification for text
                     // Not implemented
@@ -2493,8 +2616,17 @@ main_loop_for_printing:
                 case 'p':    // ESC p n Turn proportional mode on/off off--> n=0
                     // or 48 on --> n=1 or 49
                     // not implemented yet
-                    // maybe not really needed
+                    multipoint_mode = 0;
+                    hmi = printerdpih * (36 / 360); // Reset HMI
                     state = read_byte_from_printer((char *) &nL);
+                    if ((nL==1) || (nL==49)) {
+                        letterQuality = 1;
+                        proportionalSpacing = 1;
+                    } else if ((nL== 0) || (nL==48)) {
+                        letterQuality = 0;
+                        proportionalSpacing = 0;
+                        // update pitch if necessary according to ESC M, ESC g or ESC P
+                    }
                     break;
                 case 'E':    // ESC E SELECT BOLD FONT
                     bold = 1;
@@ -2517,35 +2649,43 @@ main_loop_for_printing:
                     break;
                 case 'W':    // ESC W SELECT DOUBLE WIDTH
                     state = read_byte_from_printer((char *) &nL);
-                    if ((nL==1) || (nL==49)) double_width=1;
-                    if ((nL==0) || (nL==48)) {
-                        double_width=0; 
-                        double_width_single_line = 0;
+                    hmi = printerdpih * (36 / 360); // Reset HMI
+                    if (multipoint_mode == 0) {
+                        if ((nL==1) || (nL==49)) double_width=1;
+                        if ((nL==0) || (nL==48)) {
+                            double_width=0; 
+                            double_width_single_line = 0;
+                        }
                     }
                     break;                        
                 case 'w':    // ESC w SELECT DOUBLE HEIGHT
                     state = read_byte_from_printer((char *) &nL);
-                    if ((nL==1) || (nL==49)) {
-                        double_height=1;
-                        quad_height=0;
+                    hmi = printerdpih * (36 / 360); // Reset HMI
+                    if (multipoint_mode == 0) {
+                        if ((nL==1) || (nL==49)) {
+                            double_height=1;
+                            quad_height=0;
+                        }
+                        if ((nL==0) || (nL==48)) double_height=0; 
                     }
-                    if ((nL==0) || (nL==48)) double_height=0; 
                     break;
                 case 'h':    // ESC h ENLARGE - STAR NL-10 implementation
                     state = read_byte_from_printer((char *) &nL);
-                    switch (nL) {
-                    case 0:    
-                        double_height=0;
-                        quad_height=0;
-                        break;
-                    case 1:    
-                        double_height=1;
-                        quad_height=0;
-                        break;
-                    case 2:    
-                        double_height=0;
-                        quad_height=1;
-                        break;                            
+                    if (multipoint_mode == 0) {
+                        switch (nL) {
+                        case 0:    
+                            double_height=0;
+                            quad_height=0;
+                            break;
+                        case 1:    
+                            double_height=1;
+                            quad_height=0;
+                            break;
+                        case 2:    
+                            double_height=0;
+                            quad_height=1;
+                            break;                            
+                        }
                     }
                     break;
                 case '4':    // ESC 4 SELECT ITALIC FONT
@@ -2555,6 +2695,8 @@ main_loop_for_printing:
                     italic = 0;
                     break;
                 case '!':    // ESC ! n Master Font Select
+                    multipoint_mode = 0;
+                    hmi = printerdpih * (36 / 360); // Reset HMI
                     state = read_byte_from_printer((char *) &nL);
                     if ( isNthBitSet(nL, 0) ) {
                         // 12 CPI
@@ -2631,49 +2773,72 @@ main_loop_for_printing:
                         if (state == 0) break;
                         state = read_byte_from_printer((char *) &d2); 
                         if (state == 0) break;
-                        if (m==1) {
-                            underlined                 = 0;
-                            strikethrough              = 0;
-                            overscore                  = 0;
-                            single_continuous_line     = 0;
-                            double_continuous_line     = 0;
-                            single_broken_line         = 0;
-                            double_broken_line         = 0;
-
+                        if (m==1) {                              
                             switch (d1) {
+                            // Re-written 30/4/17 - as you can combine it so for example
+                            // underlined - single broken_line, with overscore double_continuous line
                             case 1: 
-                                underlined             = 1;
+                                // Underlined
+                                switch (d2) {
+                                case 0:
+                                    //Turn off   
+                                    underlined = 0;
+                                    break;
+                                case 1:
+                                    underlined = 1; // single_continuous_line
+                                    break;
+                                case 2:
+                                    underlined = 2; // double_continuous_line
+                                    break;
+                                case 5:
+                                    underlined = 3; // single_broken_line
+                                    break;
+                                case 6:
+                                    underlined = 4; // double_broken_line
+                                    break;
+                                }
                                 break;
                             case 2:
-                                strikethrough          = 1;
+                                // Strikethrough
+                                switch (d2) {
+                                case 0:
+                                    //Turn off   
+                                    strikethrough = 0;
+                                    break;
+                                case 1:
+                                    strikethrough = 1; // single_continuous_line
+                                    break;
+                                case 2:
+                                    strikethrough = 2; // double_continuous_line
+                                    break;
+                                case 5:
+                                    strikethrough = 3; // single_broken_line
+                                    break;
+                                case 6:
+                                    strikethrough = 4; // double_broken_line
+                                    break;
+                                }
                                 break;
                             case 3:
-                                overscore              = 1;
-                                break;
-                            }
-                            
-                            switch (d2) {
-                            case 0:
-                                //erase all   
-                                underlined             = 0;
-                                strikethrough          = 0;
-                                overscore              = 0;
-                                single_continuous_line = 0;
-                                double_continuous_line = 0;
-                                single_broken_line     = 0;
-                                double_broken_line     = 0;
-                                break;
-                            case 1:
-                                single_continuous_line = 1;
-                                break;
-                            case 2:
-                                double_continuous_line = 1;
-                                break;
-                            case 5:
-                                single_broken_line     = 1;
-                                break;
-                            case 6:
-                                double_broken_line     = 1;
+                                // Overscore
+                                switch (d2) {
+                                case 0:
+                                    //Turn off   
+                                    overscore = 0;
+                                    break;
+                                case 1:
+                                    overscore = 1; // single_continuous_line
+                                    break;
+                                case 2:
+                                    overscore = 2; // double_continuous_line
+                                    break;
+                                case 5:
+                                    overscore = 3; // single_broken_line
+                                    break;
+                                case 6:
+                                    overscore = 4; // double_broken_line
+                                    break;
+                                }
                                 break;
                             }
 
@@ -2944,14 +3109,28 @@ main_loop_for_printing:
                     // not implemented yet
                     state = read_byte_from_printer((char *) &nL);
                     state = read_byte_from_printer((char *) &nH);
+                    hmi = printerdpih * ((nH *256) + nL / 360);
                     break;                        
                 case 'X':
                     // ESC X m nL nH Select font by pitch & point
                     // not implemented yet
+                    multipoint_mode = 1;
+                    hmi = printerdpih * (36 / 360); // Reset HMI
                     state = read_byte_from_printer((char *) &m);
                     state = read_byte_from_printer((char *) &nL);
-                    state = read_byte_from_printer((char *) &nH);                        
-                    break;                        
+                    state = read_byte_from_printer((char *) &nH);
+                    if (m == 0) {
+                        // No change in pitch
+                    } else if (m==1) {
+                        // Proportional spacing - not yet implemented
+                    } else if (m >5) {
+                        cpi = 360 / m;
+                    }
+                    if ((nH > 0) || (nL > 0)) {                    
+                        // Set point size - 1 pt = 1/72 inch - not yet implemented
+                        // pointSize = ((nH * 256) + nL) / 2
+                    }
+                    break;                          
                 case 'U':    // Turn unidirectional mode on/off ESC U n n = 0 or
                     // 48 Bidirectional 1 or 49 unidirectional
                     // not implemented yet
@@ -3068,8 +3247,11 @@ main_loop_for_printing:
                     xpos = marginleftp;                      
                     break;                        
                 case 20:    // ESC SP Set intercharacter space
-                    // Not yet implemented
                     state = read_byte_from_printer((char *) &nL);
+                    hmi = printerdpih * (36 / 360); // Reset HMI
+                    if (multipoint_mode == 0) {
+                        chrSpacing = nL;
+                    }                    
                     break;                        
                 case 25:    // ESC EM n Control paper loading / ejecting (do nothing)
                     state = read_byte_from_printer((char *) &nL);
@@ -3225,12 +3407,14 @@ main_loop_for_printing:
                 } // end of switch
                 break;
             case 14:    // ESC SO Shift Out Select double Width printing (for one line)
-                double_width_single_line = 1;
+                if (multipoint_mode == 0) double_width_single_line = 1;
                 break;                    
             case 15:    // ESC SI Shift In Condensed printing on
-                if (pitch==10) cpi=17.14;
-                if (pitch==12) cpi=20;
-                // Add for proportional font = 1/2 width
+                if (multipoint_mode == 0) {
+                    if (pitch==10) cpi=17.14;
+                    if (pitch==12) cpi=20;
+                    // Add for proportional font = 1/2 width - to be written
+                }
                 break;
             }
         }   // End of ESC branch
