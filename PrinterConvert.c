@@ -53,8 +53,8 @@ struct timespec tvx;
 int startzeit;              // start time for time measures to avoid infinite loops
 
 int t1=0,t2=0,t3=0,t4=0,t5=0;
-int offlineswitch          = 0;
 int ackposition            = 0;
+int msbsetting             = 0;
 int rawispcl               = 0;         //if 1 the raw folder is copied to pcl folder and raw files are renamed to *.pcl in the pcl folder
 int rawiseps               = 0;         //if 1 the raw folder is copied to eps folder and raw files are renamed to *.eps in the eps folder
 int outputFormatText       = 0;         //0=no conversion  1=Unix (LF) 2= Windows (CR+LF) 3=MAC (CR)
@@ -94,6 +94,7 @@ int read_byte_from_printer(unsigned char *bytex)
     */
     unsigned char databyte;
     // read databyte from file or port...
+    // take account of msbsetting : 0 - use bit 7 as set in data, 1 - clear bit 7 of all data, 2 - set bit 7 of all data
     
     *bytex = databyte;
     return 1;
@@ -822,7 +823,7 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
             if (compressMode == 3) {
                 // Clear seedrow for current colour
                 for (bytePointer = printColour * pageSetWidth; bytePointer < (printColour+1) * pageSetWidth; bytePointer++) {
-                    seedrow[bytePointer] == 0;
+                    seedrow[bytePointer] = 0;
                 }
                 // Reset the current row on the paper to white and then add the other colours
                 for (j = 0; j < (pageSetWidth * 3) * pageSetHeight; j++) printermemory[j] = 255;
@@ -885,8 +886,8 @@ _8pin_line_bitmap_print(int dotColumns, float hPixelWidth, float vPixelWidth,
      float xzoom, float yzoom, int adjacentDot)
 {
     // bitmap graphics printing - prints bytes vertically
-    int opr, fByte, j;
-    unsigned int xd, repeater;
+    int opr, fByte;
+    unsigned int xd;
     test_for_new_paper();
     for (opr = 0; opr < dotColumns; opr++) {
         // timeout
@@ -921,8 +922,8 @@ _9pin_line_bitmap_print(int dotColumns, float hPixelWidth, float vPixelWidth,
      float xzoom, float yzoom, int adjacentDot)
 {
     // bitmap graphics printing - prints bytes vertically - special case for ESC ^ command
-    int opr, fByte, xByte, j;
-    unsigned int xd, repeater;
+    int opr, fByte, xByte;
+    unsigned int xd;
     test_for_new_paper();
     for (opr = 0; opr < dotColumns; opr++) {
         state = 0;
@@ -971,8 +972,8 @@ _24pin_line_bitmap_print(int dotColumns, float hPixelWidth, float vPixelWidth,
       float xzoom, float yzoom, int adjacentDot)
 {
     // bitmap graphics printing - prints bytes vertically
-    int opr, fByte, xByte, j;
-    unsigned int xd, repeater;
+    int opr, fByte, xByte;
+    unsigned int xd;
     test_for_new_paper();
     for (opr = 0; opr < dotColumns; opr++) {
         // print 6 bytes (6 x 8 dots) per column
@@ -1010,8 +1011,8 @@ _48pin_line_bitmap_print(int dotColumns, float hPixelWidth, float vPixelWidth,
       float xzoom, float yzoom, int adjacentDot)
 {
     // bitmap graphics printing - prints bytes vertically
-    int opr, fByte, xByte, j;
-    unsigned int xd, repeater;
+    int opr, fByte, xByte;
+    unsigned int xd;
     test_for_new_paper();
     for (opr = 0; opr < dotColumns; opr++) {
         // print 6 bytes (6 x 8 dots) per column
@@ -1049,7 +1050,7 @@ _line_raster_print(int bandHeight, int dotColumns, float hPixelWidth, float vPix
      float xzoom, float yzoom, int rleEncoded)
 {
     // Data is sent in horizontal bands of up to dotColumns high
-    int opr, fByte, xByte, j, band;
+    int opr, xByte, j, band;
     unsigned int xd, repeater;
     test_for_new_paper();
     for (band = 0; band < bandHeight; band++) {
@@ -1739,7 +1740,7 @@ int main(int argc, char *args[])
     unsigned int xd = 0;
     unsigned int pixelz = 0;
     int xposold;
-    int i, countcharz = 0;
+    int i, j, countcharz = 0;
     char *config;
     FILE *FL; 
 
@@ -1757,7 +1758,6 @@ int main(int argc, char *args[])
         printf("font_direction=1   --> 0=lsb left 1=lsb right\n");
         printf("sdl=sdlon          --> display printout in sdl window\n");
         printf("path=/home/pi/data --> store all in this directory\n");
-        printf("offlineswitch      --> evaluate offline switch\n");
 
         goto raus;
     }
@@ -1831,8 +1831,6 @@ int main(int argc, char *args[])
         if (strncmp(param, "t3=", 3) == 0) t3 = atoi(&args[i][3]);
         if (strncmp(param, "t4=", 3) == 0) t4 = atoi(&args[i][3]);
         if (strncmp(param, "t5=", 3) == 0) t5 = atoi(&args[i][3]);
-        
-        if (strncmp(param, "offlineswitch", strlen(args[i])) == 0) offlineswitch = 1;
 
         if (strncmp(args[i], "B_b_A_a", strlen(args[i])) == 0) {
             printf ("Normal busy_on busy_off ack_on ack_off handshaking\n");
@@ -1893,7 +1891,6 @@ int main(int argc, char *args[])
 
     // goto raus;
     initialize();
-    test_offline_switch(offlineswitch);
 
     openfont(args[3]);
     direction_of_char = atoi(args[4]);
@@ -1935,7 +1932,6 @@ main_loop_for_printing:
     mountusb(path);
     xpos = marginleftp;
     ypos = 0;
-    test_offline_switch(offlineswitch);
     if (sdlon) erasesdl();
     erasepage();
     // Clear tab marks
@@ -2119,7 +2115,7 @@ main_loop_for_printing:
                         if (defaultUnit == 0) thisDefaultUnit = printerdpiv / 360; // Default for command is 1/360 inch units
                         margintopp = ((tH * 256) + tL) * thisDefaultUnit;
                         marginbottomp = ((bH * 256) + bL) * thisDefaultUnit;
-                        if (marginbottomp > 22 * printerdpih) bottomp = 22 * printerdpih; // Max 22 inches
+                        if (marginbottomp > 22 * printerdpih) marginbottomp = 22 * printerdpih; // Max 22 inches
                         ypos = 0;
                         // cancel top and bottom margins (margintopp and marginbottomp - to be implemented)                            
                         break;
@@ -2135,9 +2131,10 @@ main_loop_for_printing:
                         thisDefaultUnit = defaultUnit;
                         if (defaultUnit == 0) thisDefaultUnit = printerdpiv / 360; // Default for command is 1/360 inch units
                         ypos2 = margintopp + ((mH * 256) + mL) * thisDefaultUnit;
-                        // RWAP ignore if movement is more than 179/360" upwards
-                        // RWAP ignore if command would move upwards after graphics command sent on current line, or above where graphics have 
-                        // previously been printed.
+                        // Ignore if movement is more than 179/360" upwards
+                        if (ypos2 < (ypos - (printerdpiv * (179/360))) ) ypos2 = ypos;
+                        // Ignore if command would move upwards after graphics command sent on current line, or above where graphics have 
+                        // previously been printed - to be written.
                         ypos = ypos2;
                         test_for_new_paper();
                         break;
@@ -2157,9 +2154,10 @@ main_loop_for_printing:
                             mH = 127 - mH;
                         }
                         ypos2 = ypos + ((mH * 256) + mL) * thisDefaultUnit;
-                        // ignore if movement is more than 179/360" upwards
+                        // Ignore if movement is more than 179/360" upwards
+                        if (ypos2 < (ypos - (printerdpiv * (179/360))) ) ypos2 = ypos;                        
                         // ignore if command would move upwards after graphics command sent on current line, or above where graphics have 
-                        // previously been printed.
+                        // previously been printed - to be written
                         if (ypos2 < margintopp) {
                             // No action
                         } else {
@@ -2332,7 +2330,7 @@ main_loop_for_printing:
                         // ignore IF print position would be moved to inside the bottom margin
                         ypos2 = ypos;
                         ypos = vTabulators[curVtab];
-                        if ((ypos > (pageSetHeight - 17 * vPixelWidth)) {
+                        if (ypos > (pageSetHeight - 17 * vPixelWidth)) {
                             // Do nothing
                             ypos = ypos2;
                         } else {
@@ -2425,9 +2423,12 @@ main_loop_for_printing:
             case 23:    // ETB End Of Transmition Block (do nothing)
                 break;
             case 24:    // CAN Cancel (do nothing)
+                // Not implemented - normally wipes the current line of all characters and graphics
                 if (print_controlcodes) {
                     print_character(xd);
-                }                
+                } else {
+                    xpos = marginleftp;
+                }
                 break;
             case 25:    // EM End Of Medium (do nothing)
                 if (print_controlcodes) {
@@ -2450,6 +2451,8 @@ main_loop_for_printing:
             case 31:    // US Unit Separator (do nothing)
                 break;
             case 127:    // DEL (do nothing)
+                // Not implemented - normally deletes the last character to be printed on the current line
+                // ignore if follows ESC $ ESC \ or HT
                 break;
             case 255:
                 xposold = xpos;
@@ -2741,7 +2744,14 @@ main_loop_for_printing:
                     dotColumns = nH << 8;
                     dotColumns = dotColumns | nL;
                     _9pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
-                    break;                    
+                    break;
+                case 'V':    // ESC V n d1 d2 d3 d....  Repeat data n number of times
+                    // Data allows up to 2047 extra bytes - last byte is identified with ESC V NUL
+                    // Not currently supported - only used by LQ-1500 and SQ-2000 printers
+                    state = read_byte_from_printer((char *) &nL);
+                    if (state == 0) break;
+                    // if (nL == 0) bufferData = 0;
+                    break;                     
                 case 'S':    // ESC S n select superscript/subscript printing
                     state = read_byte_from_printer((char *) &nL);
                     if ((nL==1) || (nL==49)) {
@@ -3050,7 +3060,7 @@ main_loop_for_printing:
                         if (defaultUnit == 0) thisDefaultUnit = printerdpiv / 360; // Default for command is 1/360 inch units
                         margintopp = ((tH * 256) + tL) * thisDefaultUnit;
                         marginbottomp = ((bH * 256) + bL) * thisDefaultUnit;
-                        if (marginbottomp > 22 * printerdpih) bottomp = 22 * printerdpih; // Max 22 inches
+                        if (marginbottomp > 22 * printerdpih) marginbottomp = 22 * printerdpih; // Max 22 inches
                         ypos = 0;
                         // cancel top and bottom margins (margintopp and marginbottomp - to be implemented)                            
                         break;
@@ -3066,9 +3076,10 @@ main_loop_for_printing:
                         thisDefaultUnit = defaultUnit;
                         if (defaultUnit == 0) thisDefaultUnit = printerdpiv / 360; // Default for command is 1/360 inch units
                         ypos2 = margintopp + ((mH * 256) + mL) * thisDefaultUnit;
-                        // RWAP ignore if movement is more than 179/360" upwards
-                        // RWAP ignore if command would move upwards after graphics command sent on current line, or above where graphics have 
-                        // previously been printed.
+                        // Ignore if movement is more than 179/360" upwards
+                        if (ypos2 < (ypos - (printerdpiv * (179/360))) ) ypos2 = ypos;
+                        // Ignore if command would move upwards after graphics command sent on current line, or above where graphics have 
+                        // previously been printed - to be implemented
                         ypos = ypos2;
                         test_for_new_paper();
                         break;
@@ -3088,9 +3099,10 @@ main_loop_for_printing:
                             mH = 127 - mH;
                         }
                         ypos2 = ypos + ((mH * 256) + mL) * thisDefaultUnit;
-                        // ignore if movement is more than 179/360" upwards
+                        // Ignore if movement is more than 179/360" upwards
+                        if (ypos2 < (ypos - (printerdpiv * (179/360))) ) ypos2 = ypos;                        
                         // ignore if command would move upwards after graphics command sent on current line, or above where graphics have 
-                        // previously been printed.
+                        // previously been printed - to be written
                         if (ypos2 < margintopp) {
                             // No action
                         } else {
@@ -3284,6 +3296,12 @@ main_loop_for_printing:
                         test_for_new_paper();
                     }
                     break;
+                case 'j':
+                    // ESC j n Reverse paper feed n/216 inches
+                    state = read_byte_from_printer((char *) &nL);
+                    ypos = ypos - (720 * (nL /216));
+                    if (ypos < 0) ypos = 0;
+                    break;
                 case 'c':
                     // ESC c nL nH Set Horizonal Motion Index (HMI)
                     // not implemented yet
@@ -3319,7 +3337,16 @@ main_loop_for_printing:
                 case '<':    // Unidirectional mode (1 line)
                     // not required
                     xpos = marginleftp;
-                    break;                          
+                    break;
+                case '#':    // Cancel MSB Control
+                    msbsetting = 0;
+                    break;
+                case '=':    // Set MSB (bit 7) of all incoming data to 0
+                    msbsetting = 1;
+                    break;
+                case '>':    // Set MSB (bit 7) of all incoming data to 1
+                    msbsetting = 2;
+                    break;                   
                 case '8':    // Disable paper-out detector
                     // not required
                     break;                         
@@ -3365,7 +3392,7 @@ main_loop_for_printing:
                         xpos = xpos2;
                     }                        
                     break;
-                case '\':   // Set relative horizonal print position ESC \ nL nH
+                case 92:   // Set relative horizonal print position ESC \ nL nH
                     state = read_byte_from_printer((char *) &nL); // always 2
                     if (state == 0) break;
                     state = read_byte_from_printer((char *) &nH); // always 0
@@ -3451,20 +3478,19 @@ main_loop_for_printing:
                     dotColumns = dotColumns | nL;
                     bitimage_graphics(m, dotColumns);
                     break;
+                case 14:    // ESC SO Shift Out Select double Width printing (for one line)
+                    if (multipoint_mode == 0) double_width_single_line = 1;
+                    break;                    
+                case 15:    // ESC SI Shift In Condensed printing on
+                    if (multipoint_mode == 0) {
+                        if (pitch==10) cpi=17.14;
+                        if (pitch==12) cpi=20;
+                        // Add for proportional font = 1/2 width - to be written
+                    }
+                    break;
                 } // end of switch
-                break;
-            case 14:    // ESC SO Shift Out Select double Width printing (for one line)
-                if (multipoint_mode == 0) double_width_single_line = 1;
-                break;                    
-            case 15:    // ESC SI Shift In Condensed printing on
-                if (multipoint_mode == 0) {
-                    if (pitch==10) cpi=17.14;
-                    if (pitch==12) cpi=20;
-                    // Add for proportional font = 1/2 width - to be written
-                }
-                break;
-            }
-        }   // End of ESC branch
+            }   // End of ESC branch
+        }
         if (sdlon) SDL_UpdateRect(display, 0, 0, 0, 0);
     }   
 
