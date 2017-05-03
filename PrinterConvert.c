@@ -1749,12 +1749,12 @@ int main(int argc, char *args[])
         printf
             ("Usage: ./PrinterConvert <timeout> <divisor> <font> <font_direction> <sdl> <path> \n\n");
 
-        printf("Usage: ./PrinterConvert 4 3 font.raw 1 sdlon /home/pi/data\n \n");
+        printf("Usage: ./PrinterConvert 4 3 font2/SIEMENS.C16 1 sdlon /home/pi/data\n \n");
         printf
             ("timeout=4          --> if no char comes in within 4 sec, printout current page\n");
         printf
             ("divisor=30         --> reduce sdl display to 30% of original size\n");
-        printf("font=font.raw      --> rload this font in font memory area\n");
+        printf("font=font2/SIEMENS.C16      --> rload this font in font memory area\n");
         printf("font_direction=1   --> 0=lsb left 1=lsb right\n");
         printf("sdl=sdlon          --> display printout in sdl window\n");
         printf("path=/home/pi/data --> store all in this directory\n");
