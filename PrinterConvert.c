@@ -334,10 +334,10 @@ void putpixel(SDL_Surface * surface, int x, int y, Uint32 pixel)
     // If existing pixel is 0x00FFFFFF (white), then we need to reset it to 0x00000000; before OR'ing the chosen colour
     switch (bpp) {
     case 1:
-        if (p == 255) {
-            *p = pixel;
+        if (p[0] == 255) {
+            p[0] = pixel;
         } else {
-            *p |= pixel;
+            p[0] |= pixel;
         }
         break;
     case 2:
