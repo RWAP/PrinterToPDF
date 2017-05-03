@@ -89,6 +89,12 @@ int escZbitDensity         = 3;         // 240 dpi
 
 SDL_Surface *display;
 
+int initialize()
+{
+    /* routine could be used here to open the input file or port for reading 
+    */
+}
+
 int read_byte_from_printer(unsigned char *bytex)
 {
     /* This routine needs to be written according to your requirements
