@@ -87,6 +87,8 @@ int escLbitDensity         = 1;         // 120 dpi
 int escYbitDensity         = 2;         // 120 dpi
 int escZbitDensity         = 3;         // 240 dpi
 
+SDL_Surface *display;
+
 int read_byte_from_printer(unsigned char *bytex)
 {
     /* This routine needs to be written according to your requirements
@@ -425,7 +427,6 @@ int curVtab = 0;                            // next active vertical tab
 float hPixelWidth, vPixelWidth;
 FILE *f;
 FILE *fp = NULL;
-SDL_Surface *display;
 char fontx[2049000];
 
 void erasepage()
