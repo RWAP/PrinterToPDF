@@ -3,7 +3,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <time.h>
-#include "SDL.h"
+#include "SDL.h" // This may need to be #include "/usr/include/SDL/SDL.h" on your system
 #include "dir.c"
 
 /* Conversion program to convert Epson ESC/P printer data to an Adobe PDF file on Linux.
