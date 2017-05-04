@@ -89,10 +89,15 @@ int escZbitDensity         = 3;         // 240 dpi
 
 SDL_Surface *display;
 
+FILE *inputFile;
 int initialize()
 {
     /* routine could be used here to open the input file or port for reading 
+    *  example is for reading from an input file called ./Test1.prn
+    *  The routine is not error trapped at present
     */
+    inputFile = fopen("./Test1.prn", "r");
+    if (inputFile == NULL) return -1;
 }
 
 int read_byte_from_printer(unsigned char *bytex)
@@ -102,10 +107,30 @@ int read_byte_from_printer(unsigned char *bytex)
     */
     unsigned char databyte;
     // read databyte from file or port...
+    // Example below is reading a character from the file opened in initialize();
     // take account of msbsetting : 0 - use bit 7 as set in data, 1 - clear bit 7 of all data, 2 - set bit 7 of all data
-    
-    *bytex = databyte;
-    return 1;
+
+    while (!feof(inputFile)) {
+        databyte = fgetc(inputFile);
+        switch (msbsetting) {
+        case 0:
+            // No change
+            break;
+        case 1:
+            // MSB is set byte 7 to 0
+            databyte = databyte & 127;
+            break;
+        case 2:
+            // MSB is set byte 7 to 1
+            databyte = databyte | 128;
+            break;
+        }
+        *bytex = databyte;
+        return 1;
+    }
+    // No more data to be read from file
+    fclose(inputFile);
+    return 0;
 }
 
 /*
