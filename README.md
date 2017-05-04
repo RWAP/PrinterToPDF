@@ -13,3 +13,11 @@ The PrinterConvert code works by creating a bitmap image in memory which is then
 
 RWAP Software
 March 2017
+
+COMPILING
+On some versions of Linux, you will need to change the reference in line 6 to read:
+
+#include "/usr/include/SDL/SDL.h"
+
+You may also need to use the following to compile the program, complete with clock_gettime() and sdl commands
+gcc PrinterConvert.c -o PrinterConvert.o -lSDL -lrt
