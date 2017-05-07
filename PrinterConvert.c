@@ -29,7 +29,8 @@ int printerdpih = 720;
 int printerdpiv = 720;
 int pageSetWidth = 5954;
 int pageSetHeight = 8417;
-unsigned char printermemory[5955 * 8417 * 3]; // Allow 3 bytes per pixel
+// RAM Changed to store 1 byte per pixel (colour is set in bits 0 to 7) - we then convert when creating the bmp.
+unsigned char printermemory[5954 * 8417]; // Allow 1 byte per pixel (store colour in bits 0 - 7 will be converted later) RAM
 
 unsigned int page = 0;
 char filenameX[1000];
@@ -165,6 +166,65 @@ struct BMPHeader {
     int biClrImportant;     // Number of important colors.  If 0, all colors are important
 };
 
+int * lookupColour(unsigned char colourValue)
+{
+    // Convert printer colour (0 to 7 stored in bits of colourValue) to RGB value
+    // Routine uses averaging to get colours such as pink (red + white)
+    static int rgb1[3];
+    rgb1[0]=0;
+    rgb1[1]=0;
+    rgb1[2]=0;
+    if (colourValue == 0) return rgb1;
+    if (isNthBitSet(colourValue, 7) ) {
+        // White - nothing printed
+        rgb1[0]=255;
+        rgb1[1]=255;
+        rgb1[2]=255;
+        return rgb1;
+    }
+    if (isNthBitSet(colourValue, 0) ) {
+        // Black - default
+    }
+    if (isNthBitSet(colourValue, 1) ) {
+        // Magenta
+        rgb1[0] = (rgb1[0] + 255) /2;
+        rgb1[1] |= 0;
+        rgb1[2] |= (rgb1[2] + 255) /2;
+    }
+    if (isNthBitSet(colourValue, 2) ) {
+        // Cyan
+        rgb1[0] |= 0;
+        rgb1[1] |= (rgb1[1] + 255) /2;
+        rgb1[2] |= (rgb1[2] + 255) /2;
+    }     
+    if (isNthBitSet(colourValue, 3) ) {
+        // Violet
+        rgb1[0] |= (rgb1[0] + 238) /2;
+        rgb1[1] |= (rgb1[1] + 130) /2;
+        rgb1[2] |= (rgb1[2] + 238) /2;
+    }
+    if (isNthBitSet(colourValue, 4) ) {
+        // Yellow
+        rgb1[0] |= (rgb1[0] + 255) /2;
+        rgb1[1] |= (rgb1[1] + 255) /2;
+        rgb1[2] |= 0;
+    }
+    if (isNthBitSet(colourValue, 5) ) {
+        // Red
+        rgb1[0] |= (rgb1[0] + 255) /2;
+        rgb1[1] |= 0;
+        rgb1[2] |= 0;
+    }
+    if (isNthBitSet(colourValue, 6) ) {
+        // Green
+        rgb1[0] |= 0;
+        rgb1[1] |= (rgb1[1] + 255) /2;
+        rgb1[2] |= 0;
+    }
+    return rgb1;
+}
+
+
 int write_bmp(const char *filename, int width, int height, char *rgb)
 {
     int i, j, ipos;
@@ -217,13 +277,15 @@ int write_bmp(const char *filename, int width, int height, char *rgb)
         fprintf(stderr, "Can't allocate memory for BMP file.\n");
         return (0);
     }
-
+    // RAM Change to support 1 byte per pixel
+    int *printerColour;
     for (i = height - 1; i >= 0; i--) {
         for (j = 0; j < width; j++) {
-            ipos = 3 * (width * i + j);
-            line[3 * j] = rgb[ipos + 2];
-            line[3 * j + 1] = rgb[ipos + 1];
-            line[3 * j + 2] = rgb[ipos];
+            ipos = width * i + j;
+            printerColour = lookupColour(rgb[ipos]);
+            line[3 * j] = *printerColour + 2;
+            line[3 * j + 1] = *printerColour + 1;
+            line[3 * j + 2] = *printerColour + 0;
         }
         fwrite(line, bytesPerLine, 1, file);
     }
@@ -236,68 +298,13 @@ int write_bmp(const char *filename, int width, int height, char *rgb)
 
 void putpx(int x, int y)
 {
-    // Write RGB value to specific pixel on the created bitmap
-    int rgb1, rgb2, rgb3;
-    switch (printColour) {
-    case 0:
-        // Black
-        rgb1 = 0;
-        rgb2 = 0;
-        rgb3 = 0;
-        break;
-    case 1:
-        // Magenta
-        rgb1 = 255;
-        rgb2 = 0;
-        rgb3 = 255;
-        break;
-    case 2:
-        // Cyan
-        rgb1 = 0;
-        rgb2 = 255;
-        rgb3 = 255;
-        break;        
-    case 3:
-        // Violet
-        rgb1 = 238;
-        rgb2 = 130;
-        rgb3 = 238;
-        break;
-    case 4:
-        // Yellow
-        rgb1 = 255;
-        rgb2 = 255;
-        rgb3 = 0;
-        break;
-    case 5:
-        // Red
-        rgb1 = 255;
-        rgb2 = 0;
-        rgb3 = 0;
-        break;
-    case 6:
-        // Green
-        rgb1 = 0;
-        rgb2 = 255;
-        rgb3 = 0;
-        break;
-    case 7:
-        // White
-        rgb1 = 255;
-        rgb2 = 255;
-        rgb3 = 255;
-        break;
-    }
-    int pos = y * (3 * pageSetWidth) + (x * 3);
-    // If existing pixel is 0x00FFFFFF (white), then we need to reset it to 0x00000000; before OR'ing the chosen colour
-    if (printermemory[pos + 0] == 255 && printermemory[pos + 1] == 255 && printermemory[pos + 2] == 255) {
-        printermemory[pos + 0] = rgb1;
-        printermemory[pos + 1] = rgb2;
-        printermemory[pos + 2] = rgb3;
+    // Write printer colour to specific pixel on the created bitmap
+    int pos = y * pageSetWidth + x;
+    // If existing pixel is 7 (white), then we need to reset it to 0 before OR'ing the chosen colour
+    if (isNthBitSet(printermemory[pos], 7) ) {
+        printermemory[pos] = 1 << printColour;
     } else {
-        printermemory[pos + 0] |= rgb1;
-        printermemory[pos + 1] |= rgb2;
-        printermemory[pos + 2] |= rgb3;
+        printermemory[pos] |= 1 << printColour;
     }
 }
 
@@ -463,7 +470,7 @@ char fontx[2049000];
 void erasepage()
 {
     int i;  
-    for (i = 0; i < (pageSetWidth * 3) * pageSetHeight; i++) printermemory[i] = 255;
+    for (i = 0; i < pageSetWidth * pageSetHeight; i++) printermemory[i] = 1 << 7; // RAM
 }
 
 void erasesdl()
@@ -516,11 +523,9 @@ int test_for_new_paper()
 }
 
 int precedingDot(int x, int y) {
-    int pos = y * (3 * pageSetWidth) + (x-1) * 3;
-    if (printermemory[pos + 0]<255) return 1;
-    if (printermemory[pos + 1]<255) return 1;
-    if (printermemory[pos + 2]<255) return 1;
-    return 0;
+    int pos = (y * pageSetWidth) + (x-1); // RAM
+    if (isNthBitSet(printermemory[pos], 7)) return 0; // White
+    return 1;
 }
 
 void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth) {
@@ -858,7 +863,8 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
                     seedrow[bytePointer] = 0;
                 }
                 // Reset the current row on the paper to white and then add the other colours
-                for (j = 0; j < (pageSetWidth * 3) * pageSetHeight; j++) printermemory[j] = 255;
+                bytePointer = ypos * pageSetWidth;
+                for (j = 0; j < pageSetWidth; j++) printermemory[bytePointer + j] = 1 << 7; // RAM bugfix - 6/5/17
                 if (sdlon == 1) {
                     // Clear display
                     for (xpos = 0; xpos < pageSetWidth; xpos++) {
@@ -3247,6 +3253,7 @@ main_loop_for_printing:
                                 if (state == 0) break;
                                 // Should be 0 returned
                                 j = 0;
+                                // RAM check - should this be a0
                                 while (j < a1 * 3) {
                                     state = read_byte_from_printer((char *) &xd);
                                     if (state == 0) break;
@@ -3258,6 +3265,7 @@ main_loop_for_printing:
                             // DRAFT
                             // Get first remaining bit of data, then repeat
                             j = 0;
+                            // RAM check - should this be a0
                             while (j < a1 * 3) {
                                 state = read_byte_from_printer((char *) &xd);
                                 if (state == 0) break;
@@ -3268,6 +3276,7 @@ main_loop_for_printing:
                                 state = read_byte_from_printer((char *) &a0); 
                                 if (state == 0) break;
                                 j = 0;
+                                // RAM check - should this be a0
                                 while (j < a1 * 3) {
                                     state = read_byte_from_printer((char *) &xd);
                                     if (state == 0) break;
@@ -3286,6 +3295,7 @@ main_loop_for_printing:
                             state = read_byte_from_printer((char *) &a2);
                             if (state == 0) break;
                             j = 0;
+                            // RAM check - we are not using a0 or a2
                             while (j < a1 * 3) {
                                 state = read_byte_from_printer((char *) &xd);
                                 if (state == 0) break;
