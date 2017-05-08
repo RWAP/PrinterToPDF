@@ -237,7 +237,7 @@ int write_bmp(const char *filename, int width, int height, char *rgb)
     struct BMPHeader bmph;
 
     // The length of each line must be a multiple of 4 bytes 
-    bytesPerLine = ((float) 3 * (float) (width + 1) / (float) 4) * (float) 4;
+    bytesPerLine = (3 * (width + 1) / 4) * 4;
 
     strcpy(bmph.bfType, "BM");
     bmph.bfOffBits = 54;
