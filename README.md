@@ -19,5 +19,6 @@ On some versions of Linux, you will need to change the reference in line 6 to re
 
 #include "/usr/include/SDL/SDL.h"
 
-You may also need to use the following to compile the program, complete with clock_gettime() and sdl commands
-gcc PrinterConvert.c -o PrinterConvert.o -lSDL -lrt
+To compile the program use the following command:
+
+gcc PrinterConvert.c `sdl-config --cflags --libs` -o PrinterConvert -lrt  -g
