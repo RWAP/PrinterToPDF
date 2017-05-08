@@ -29,8 +29,7 @@ int printerdpih = 720;
 int printerdpiv = 720;
 int pageSetWidth = 5954;
 int pageSetHeight = 8417;
-// RAM Changed to store 1 byte per pixel (colour is set in bits 0 to 7) - we then convert when creating the bmp.
-unsigned char printermemory[5954 * 8417]; // Allow 1 byte per pixel (store colour in bits 0 - 7 will be converted later) RAM
+unsigned char printermemory[5954 * 8417]; // Allow 1 byte per pixel (store colour in bits 0 - 7 will be converted later)
 
 unsigned int page = 0;
 char filenameX[1000];
@@ -224,7 +223,6 @@ int * lookupColour(unsigned char colourValue)
     return rgb1;
 }
 
-
 int write_bmp(const char *filename, int width, int height, char *rgb)
 {
     int i, j, ipos;
@@ -277,7 +275,7 @@ int write_bmp(const char *filename, int width, int height, char *rgb)
         fprintf(stderr, "Can't allocate memory for BMP file.\n");
         return (0);
     }
-    // RAM Change to support 1 byte per pixel
+    
     int *printerColour;
     for (i = height - 1; i >= 0; i--) {
         for (j = 0; j < width; j++) {
@@ -470,7 +468,7 @@ char fontx[2049000];
 void erasepage()
 {
     int i;  
-    for (i = 0; i < pageSetWidth * pageSetHeight; i++) printermemory[i] = 1 << 7; // RAM
+    for (i = 0; i < pageSetWidth * pageSetHeight; i++) printermemory[i] = 1 << 7;
 }
 
 void erasesdl()
@@ -523,7 +521,7 @@ int test_for_new_paper()
 }
 
 int precedingDot(int x, int y) {
-    int pos = (y * pageSetWidth) + (x-1); // RAM
+    int pos = (y * pageSetWidth) + (x-1);
     if (isNthBitSet(printermemory[pos], 7)) return 0; // White
     return 1;
 }
@@ -864,7 +862,7 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
                 }
                 // Reset the current row on the paper to white and then add the other colours
                 bytePointer = ypos * pageSetWidth;
-                for (j = 0; j < pageSetWidth; j++) printermemory[bytePointer + j] = 1 << 7; // RAM bugfix - 6/5/17
+                for (j = 0; j < pageSetWidth; j++) printermemory[bytePointer + j] = 1 << 7;
                 if (sdlon == 1) {
                     // Clear display
                     for (xpos = 0; xpos < pageSetWidth; xpos++) {
@@ -1804,6 +1802,7 @@ int main(int argc, char *args[])
     // Parse the parameters in case they override the defaults
 
     for (i = 0; i < argc; i++) {
+        param = lowerCaseWord(args[i]); // Convert to lower case
         // Output format - Epson or HP
         if (strcmp(param,"hp") == 0) {
             rawispcl=1;
@@ -3253,7 +3252,7 @@ main_loop_for_printing:
                                 if (state == 0) break;
                                 // Should be 0 returned
                                 j = 0;
-                                // RAM check - should this be a0
+                                // Check - should this be a0
                                 while (j < a1 * 3) {
                                     state = read_byte_from_printer((char *) &xd);
                                     if (state == 0) break;
@@ -3265,7 +3264,7 @@ main_loop_for_printing:
                             // DRAFT
                             // Get first remaining bit of data, then repeat
                             j = 0;
-                            // RAM check - should this be a0
+                            // Check - should this be a0
                             while (j < a1 * 3) {
                                 state = read_byte_from_printer((char *) &xd);
                                 if (state == 0) break;
@@ -3276,7 +3275,7 @@ main_loop_for_printing:
                                 state = read_byte_from_printer((char *) &a0); 
                                 if (state == 0) break;
                                 j = 0;
-                                // RAM check - should this be a0
+                                // Check - should this be a0
                                 while (j < a1 * 3) {
                                     state = read_byte_from_printer((char *) &xd);
                                     if (state == 0) break;
@@ -3295,7 +3294,7 @@ main_loop_for_printing:
                             state = read_byte_from_printer((char *) &a2);
                             if (state == 0) break;
                             j = 0;
-                            // RAM check - we are not using a0 or a2
+                            // Check - we are not using a0 or a2
                             while (j < a1 * 3) {
                                 state = read_byte_from_printer((char *) &xd);
                                 if (state == 0) break;
