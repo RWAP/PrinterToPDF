@@ -813,8 +813,7 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
                 state = read_byte_from_printer((char *) &parameter);
                 clock_gettime(CLOCK_REALTIME, &tvx);
                 if (((tvx.tv_sec - startzeit) >= timeout) && (state == 0)) goto raus_tiff_delta_print;
-            }
-            if (parameter > 127) parameter = 127 - parameter; 
+            } 
         } else {
             state = 0;
             clock_gettime(CLOCK_REALTIME, &tvx);
