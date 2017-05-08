@@ -3,7 +3,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <time.h>
-#include "SDL.h" // This may need to be #include "/usr/include/SDL/SDL.h" on your system
+#include "/usr/include/SDL/SDL.h"
 #include "dir.c"
 
 /* Conversion program to convert Epson ESC/P printer data to an Adobe PDF file on Linux.
@@ -29,7 +29,9 @@ int printerdpih = 720;
 int printerdpiv = 720;
 int pageSetWidth = 5954;
 int pageSetHeight = 8417;
-unsigned char printermemory[5954 * 8417]; // Allow 1 byte per pixel (store colour in bits 0 - 7 will be converted later)
+// unsigned char printermemory[5954 * 8417]; // Allow 1 byte per pixel (store colour in bits 0 - 7 will be converted later)
+unsigned char *printermemory;
+printermemory = malloc (5955 * 8417); // Allow 3 bytes per pixel
 
 unsigned int page = 0;
 char filenameX[1000];
@@ -92,6 +94,11 @@ SDL_Surface *display;
 FILE *inputFile;
 int initialize()
 {
+    if (printermemory == NULL) {
+        fprintf(stderr, "Can't allocate memory for BMP file.\n");
+        exit (0);
+    }    
+    
     /* routine could be used here to open the input file or port for reading 
     *  example is for reading from an input file called ./Test1.prn
     *  The routine is not error trapped at present
@@ -128,8 +135,6 @@ int read_byte_from_printer(unsigned char *bytex)
         *bytex = databyte;
         return 1;
     }
-    // No more data to be read from file
-    fclose(inputFile);
     return 0;
 }
 
@@ -281,9 +286,9 @@ int write_bmp(const char *filename, int width, int height, char *rgb)
         for (j = 0; j < width; j++) {
             ipos = width * i + j;
             printerColour = lookupColour(rgb[ipos]);
-            line[3 * j] = *printerColour + 2;
-            line[3 * j + 1] = *printerColour + 1;
-            line[3 * j + 2] = *printerColour + 0;
+            line[3 * j] = printerColour[2];
+            line[3 * j + 1] = printerColour[1];
+            line[3 * j + 2] = printerColour[0];
         }
         fwrite(line, bytesPerLine, 1, file);
     }
@@ -553,8 +558,8 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
     }
     
     // Get command into nibbles
-    command = xd > 4;
-    parameter = xd & 0xF;
+    command = (unsigned char) xd >> 4;
+    parameter = (unsigned char) xd & 0xF;
     switch (command) {
     case 2:
         // XFER 0010 xxxx - parameter number of raster image data 0...15
@@ -1887,7 +1892,7 @@ int main(int argc, char *args[])
         }
     }
     
-    printf("delays arround ack: t1=%d    t2=%d    t3=%d    t4=%d    t5=%d\n",t1,t2,t3,t4,t5);
+    printf("delays around ack: t1=%d    t2=%d    t3=%d    t4=%d    t5=%d\n",t1,t2,t3,t4,t5);
     
     // Grab the path offset
     strcpy(path, args[6]);
@@ -3586,6 +3591,14 @@ main_loop_for_printing:
         reduce_pages(page, pathpdf);
         page = dirX(pathpdf) + 1;
     }
+    
+    // No more data to be read from file
+    if (feof(inputFile)) {
+        fclose(inputFile);
+        free(printermemory);
+        exit(0);
+    }    
+    
     // sleep(1);
     goto main_loop_for_printing;
 
