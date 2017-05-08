@@ -17,8 +17,8 @@ March 2017
 COMPILING
 On some versions of Linux, you will need to change the reference in line 6 to read:
 
-#include "/usr/include/SDL/SDL.h"
+<code>#include "/usr/include/SDL/SDL.h"</code>
 
 To compile the program use the following command:
 
-gcc PrinterConvert.c `sdl-config --cflags --libs` -o PrinterConvert -lrt  -g
+<code>gcc PrinterConvert.c \`sdl-config --cflags --libs\` -o PrinterConvert -lrt  -g</code>
