@@ -29,7 +29,7 @@ int printerdpih = 720;
 int printerdpiv = 720;
 int pageSetWidth = 5954;
 int pageSetHeight = 8417;
-unsigned char printermemory[5954 * 8417]; // Allow 1 byte per pixel (store colour in bits 0 - 7 will be converted later)
+unsigned char *printermemory;
 
 unsigned int page = 0;
 char filenameX[1000];
@@ -92,6 +92,7 @@ SDL_Surface *display;
 FILE *inputFile;
 int initialize()
 {
+    printermemory = malloc (5955 * 8417); // Allow 3 bytes per pixel
     if (printermemory == NULL) {
         fprintf(stderr, "Can't allocate memory for BMP file.\n");
         exit (0);
@@ -301,8 +302,10 @@ void putpx(int x, int y)
 {
     // Write printer colour to specific pixel on the created bitmap
     int pos = y * pageSetWidth + x;
+    unsigned char existingPixel = printermemory[pos];
+
     // If existing pixel is 7 (white), then we need to reset it to 0 before OR'ing the chosen colour
-    if (isNthBitSet(printermemory[pos], 7) ) {
+    if (isNthBitSet(existingPixel, 7) ) {
         printermemory[pos] = 1 << printColour;
     } else {
         printermemory[pos] |= 1 << printColour;
