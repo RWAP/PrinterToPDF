@@ -29,9 +29,7 @@ int printerdpih = 720;
 int printerdpiv = 720;
 int pageSetWidth = 5954;
 int pageSetHeight = 8417;
-// unsigned char printermemory[5954 * 8417]; // Allow 1 byte per pixel (store colour in bits 0 - 7 will be converted later)
-unsigned char *printermemory;
-printermemory = malloc (5955 * 8417); // Allow 3 bytes per pixel
+unsigned char printermemory[5954 * 8417]; // Allow 1 byte per pixel (store colour in bits 0 - 7 will be converted later)
 
 unsigned int page = 0;
 char filenameX[1000];
