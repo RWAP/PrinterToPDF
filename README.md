@@ -14,6 +14,13 @@ The PrinterConvert code works by creating a bitmap image in memory which is then
 RWAP Software
 March 2017
 
+PRE-REQUISITES
+You will need libgd and ImageMagick installed on Linux. 
+
+For Debian (on the Raspberry Pi), this means running;
+<code>apt-get install libgd2-noxpm-dev ImageMagick</code>
+
+
 COMPILING
 On some versions of Linux, you will need to change the reference in line 6 to read:
 
@@ -21,4 +28,4 @@ On some versions of Linux, you will need to change the reference in line 6 to re
 
 To compile the program use the following command:
 
-<code>gcc PrinterConvert.c \`sdl-config --cflags --libs\` -o PrinterConvert -lrt  -g</code>
+<code>gcc PrinterConvert.c \`sdl-config --cflags --libs\` -o PrinterConvert -lrt  -lgd</code>
