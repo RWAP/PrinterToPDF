@@ -1,9 +1,9 @@
-#include <gd.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <time.h>
+#include <png.h>
 #include "/usr/include/SDL/SDL.h"
 #include "dir.c"
 
@@ -44,7 +44,7 @@ int countcharz;
 
 char    path[1000];         // main path 
 char    pathraw[1000];      //path to raw files
-char    pathbmp[1000];      //path to bmp files
+char    pathpng[1000];      //path to png files
 char    pathpdf[1000];      //path to pdf files
 char    pathpcl[1000];      //path to pcl files if rawispcl = 1
 char    patheps[1000];      //path to eps files if rawiseps = 1
@@ -95,7 +95,7 @@ int initialize()
 {
     printermemory = malloc (5955 * 8417); // Allow 3 bytes per pixel
     if (printermemory == NULL) {
-        fprintf(stderr, "Can't allocate memory for BMP file.\n");
+        fprintf(stderr, "Can't allocate memory for PNG file.\n");
         exit (0);
     }    
     
@@ -162,24 +162,6 @@ int cfileexists(const char* filename)
 int isNthBitSet (unsigned char c, int n) {
   return (c >> n);
 }
-
-struct BMPHeader {
-    char bfType[2];         // "BM"
-    int bfSize;             // Size of file in bytes
-    int bfReserved;         // set to 0
-    int bfOffBits;          // Byte offset to actual bitmap data (= 54)
-    int biSize;             // Size of BITMAPINFOHEADER, in bytes (= 40)
-    int biWidth;            // Width of image, in pixels
-    int biHeight;           // Height of images, in pixels
-    short biPlanes;         // Number of planes in target device (set to 1)
-    short biBitCount;       // Bits per pixel (24 in this case)
-    int biCompression;      // Type of compression (0 if no compression)
-    int biSizeImage;        // Image size, in bytes (0 if no compression)
-    int biXPelsPerMeter;    // Resolution in pixels/meter of display device
-    int biYPelsPerMeter;    // Resolution in pixels/meter of display device
-    int biClrUsed;          // Number of colors in the color table (if 0, use maximum allowed by biBitCount)
-    int biClrImportant;     // Number of important colors.  If 0, all colors are important
-};
 
 int * lookupColour(unsigned char colourValue)
 {
@@ -280,42 +262,115 @@ int * lookupColour(unsigned char colourValue)
     return rgb1;
 }
 
-int write_bmp(const char *filename, int width, int height, char *rgb)
+int write_png(const char *filename, int width, int height, char *rgb)
 {
-    int i, j, ipos, ppos;
-    int bytesPerLine;
-    int *printerColour;
-    unsigned char *line;
+    int ipos;
+    int *pixelColour;
+    int code = 1;
+    png_structp png_ptr = NULL;
+    png_infop info_ptr = NULL;
+    png_bytep row = NULL;
+    png_byte *row_pointers[10];
+    FILE *file; 
+    
+    char *title = "ESC/P2 converted image";
 
-    FILE *file;    
-    // struct BMPHeader bmph;
-struct stat statbuf;
-gdImagePtr im;
-int pixelColour;
+    // Open file for writing (binary mode)
+    file = fopen(filename, "wb");
+    if (file == NULL) {
+        fprintf(stderr, "PNG error - Could not open file %s for writing\n", filename);
+        code = 0;
+        goto finalise;
+    }
+    // Initialize write structure
+    png_ptr = png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
+    if (png_ptr == NULL) {
+        fprintf(stderr, "PNG error - Could not allocate write structure\n");
+        code = 0;
+        goto finalise;
+    }
 
-	im = gdImageCreateTrueColor(width, height);
-    for (i = height - 1; i >= 0; i--) {
-        ipos = width * i;
-        ppos = 0;
-        for (j = 0; j < width; j++) {
-            if (rgb[ipos + j] == 128) {
-                // White
-                pixelColour = gdImageColorAllocate(im, 255, 255, 255);  
-                gdImageSetPixel(im, j, i, pixelColour);
+    // Initialize info structure
+    info_ptr = png_create_info_struct(png_ptr);
+    if (info_ptr == NULL) {
+        fprintf(stderr, "PNG error - Could not allocate info structure\n");
+        code = 0;
+        goto finalise;
+    }
+    
+    png_set_compression_level(png_ptr, 6);  // Minimal compression for speed - balance against time taken by convert routine
+
+    // Setup Exception handling
+    if (setjmp(png_jmpbuf(png_ptr))) {
+        fprintf(stderr, "Error during png creation\n");
+        code = 0;
+        goto finalise;
+    }
+
+    png_init_io(png_ptr, file);
+
+    // Write header (8 bit colour depth)
+    png_set_IHDR(png_ptr, info_ptr, width, height,
+                8, PNG_COLOR_TYPE_RGB, PNG_INTERLACE_NONE,
+                PNG_COMPRESSION_TYPE_BASE, PNG_FILTER_TYPE_BASE);
+
+    // Set title
+    if (title != NULL) {
+        png_text title_text;
+        title_text.compression = PNG_TEXT_COMPRESSION_NONE;
+        title_text.key = "Title";
+        title_text.text = title;
+        png_set_text(png_ptr, info_ptr, &title_text, 1);
+    }
+
+    png_write_info(png_ptr, info_ptr);
+    
+    // Allocate memory for a rows (3 bytes per pixel - RGB)
+    row = (png_bytep) malloc(3 * width * sizeof(png_byte));
+    if (row == NULL) {
+        fprintf(stderr, "Can't allocate memory for PNG file.\n");
+        code = 0;
+        goto finalise;
+    }    
+
+    // Write image data
+    int x, y, ppos, rowCount = 0;
+    for (y=0 ; y<height ; y++) {
+        ipos = width * y;
+        for (x=0 ; x<width ; x++) {
+            ppos = x * 3;
+            if (rgb[ipos + x] ==128) {
+                row[ppos] = 255;
+                row[ppos + 1] = 255;
+                row[ppos + 2] = 255;
             } else {
-                printerColour = lookupColour(rgb[ipos + j]);
-                pixelColour = gdImageColorAllocate(im, printerColour[0], printerColour[1], printerColour[2]);  
-                gdImageSetPixel(im, j, i, pixelColour);
+                pixelColour = lookupColour(rgb[ipos + x]);
+                row[ppos + 0] = pixelColour[0];
+                row[ppos + 1] = pixelColour[1];
+                row[ppos + 2] = pixelColour[2];
             }
         }
-    }    
-	
-	file=fopen(filename, "wb");
-	gdImagePng(im, file);
-	fflush(file);  fclose(file);
-	gdImageDestroy(im);
+        row_pointers[rowCount++] = row;
+        if (rowCount == 10) {
+            png_write_rows(png_ptr, row_pointers, rowCount);
+            rowCount = 0;
+        }
+    }
+    if (rowCount) {
+        // Write last buffer
+        png_write_rows(png_ptr, row_pointers, rowCount);
+    }
 
-    return (1);
+    // End write
+    png_write_end(png_ptr, NULL);    
+    
+finalise:
+    if (file != NULL) fclose(file);
+    if (info_ptr != NULL) png_free_data(png_ptr, info_ptr, PNG_FREE_ALL, -1);
+    if (png_ptr != NULL) png_destroy_write_struct(&png_ptr, (png_infopp)NULL);
+    if (row != NULL) free(row);
+
+    return code;
 }
 
 void putpx(int x, int y)
@@ -515,12 +570,12 @@ int test_for_new_paper()
     if ((ypos > (pageSetHeight - 17 * vPixelWidth)) || (state == 0)) {
         xpos = marginleftp;
         ypos = 0;
-        sprintf(filenameX, "%spage%d.jpg", pathbmp, page);
+        sprintf(filenameX, "%spage%d.png", pathpng, page);
         printf("write   = %s \n", filenameX);
-        write_bmp(filenameX, pageSetWidth, pageSetHeight, printermemory);
+        write_png(filenameX, pageSetWidth, pageSetHeight, printermemory);
         
         // Create pdf file
-        sprintf(filenameX, "convert  %spage%d.jpg  %spage%d.pdf ", pathbmp,
+        sprintf(filenameX, "convert  %spage%d.png  %spage%d.pdf ", pathpng,
             page, pathpdf, page);
         printf("command = %s \n", filenameX);
         system(filenameX);
@@ -536,8 +591,8 @@ int test_for_new_paper()
         if (page > 199) {
             page = dirX(pathraw);
             reduce_pages(page, pathraw);
-            page = dirX(pathbmp);
-            reduce_pages(page, pathbmp);
+            page = dirX(pathpng);
+            reduce_pages(page, pathpng);
             page = dirX(pathpdf);
             reduce_pages(page, pathpdf);
             page = dirX(pathpdf) + 1;
@@ -548,7 +603,7 @@ int test_for_new_paper()
 
 int precedingDot(int x, int y) {
     int pos = (y * pageSetWidth) + (x-1);
-    if (isNthBitSet(printermemory[pos], 7)) return 0; // White
+    if (printermemory[pos] == 128) return 0; // White
     return 1;
 }
 
@@ -1598,7 +1653,7 @@ void mountusb(char *path)
 
     strcpy(pathcreator, "mkdir ");
     strcat(pathcreator, path);
-    strcat(pathcreator, "bmp  2>>/dev/null");
+    strcat(pathcreator, "png  2>>/dev/null");
     system(pathcreator);
 
     strcpy(pathcreator, "mkdir ");
@@ -1613,7 +1668,7 @@ void makeallpaths()
 
     sprintf(x,"mkdir %s 2>>/dev/null",pathraw);
     system(x);
-    sprintf(x,"mkdir %s 2>>/dev/null",pathbmp);
+    sprintf(x,"mkdir %s 2>>/dev/null",pathpng);
     system(x);
     sprintf(x,"mkdir %s 2>>/dev/null",pathpdf);
     system(x);
@@ -1853,14 +1908,14 @@ int main(int argc, char *args[])
     if (path[strlen(path) - 1] != '/') {
         strcat(path, "/");
         strcpy(pathraw,   path);
-        strcpy(pathbmp, path);
+        strcpy(pathpng, path);
         strcpy(pathpcl, path);
         strcpy(patheps, path);
     }
 
     strcpy(pathpdf,    path);
     strcat(pathraw,   "raw/");
-    strcat(pathbmp,   "bmp/");
+    strcat(pathpng,   "png/");
     strcat(pathpdf,   "pdf/");
     strcat(pathpcl,   "pcl/");
     strcat(patheps,   "eps/");
@@ -1869,8 +1924,8 @@ int main(int argc, char *args[])
 
     page = dirX(pathraw);
     reduce_pages(page, pathraw);
-    page = dirX(pathbmp);
-    reduce_pages(page, pathbmp);
+    page = dirX(pathpng);
+    reduce_pages(page, pathpng);
 
     page = dirX(pathpdf);
     reduce_pages(page, pathpdf);
@@ -3514,9 +3569,9 @@ main_loop_for_printing:
    
     printf("\n\nI am at page %d\n", page);
 
-    sprintf(filenameX, "%spage%d.jpg", pathbmp, page);
+    sprintf(filenameX, "%spage%d.png", pathpng, page);
     printf("write   = %s \n", filenameX);
-    write_bmp(filenameX, pageSetWidth, pageSetHeight, printermemory);
+    write_png(filenameX, pageSetWidth, pageSetHeight, printermemory);
     
     if (rawispcl == 1) {
         sprintf(filenameX, "cp  %s*.raw  %s ", pathraw,pathpcl);
@@ -3540,7 +3595,7 @@ main_loop_for_printing:
         }
     }     
 
-    sprintf(filenameX, "convert  %spage%d.jpg  %spage%d.pdf ", pathbmp, page,pathpdf, page);
+    sprintf(filenameX, "convert  %spage%d.png  %spage%d.pdf ", pathpng, page,pathpdf, page);
     printf("command = %s \n", filenameX);
     system(filenameX);
 
@@ -3554,8 +3609,8 @@ main_loop_for_printing:
     if (page > 199) {
         page = dirX(pathraw); 
         reduce_pages(page, pathraw);
-        page = dirX(pathbmp);
-        reduce_pages(page, pathbmp);
+        page = dirX(pathpng);
+        reduce_pages(page, pathpng);
         page = dirX(pathpdf);
         reduce_pages(page, pathpdf);
         page = dirX(pathpdf) + 1;
