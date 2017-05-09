@@ -25,8 +25,8 @@
 // Was 240 x 8.27 = 1924    x   216 x 11.69 = 2525
 // However 24 pin (ESC/P2) printers support up to 720dpi x 720dpi
 // giving 720 x 8.27 = 5954   x   720 x 11.69 = 8417
-int printerdpih = 720;
-int printerdpiv = 720;
+float printerdpih = 720;
+float printerdpiv = 720;
 int pageSetWidth = 5954;
 int pageSetHeight = 8417;
 unsigned char *printermemory;
@@ -174,63 +174,111 @@ int * lookupColour(unsigned char colourValue)
     // Convert printer colour (0 to 7 stored in bits of colourValue) to RGB value
     // Routine uses averaging to get colours such as pink (red + white)
     static int rgb1[3];
-    rgb1[0]=0;
-    rgb1[1]=0;
-    rgb1[2]=0;
-    if (colourValue == 0) return rgb1;
-    if (isNthBitSet(colourValue, 7) ) {
+    int blackSet = 0;
+    if (colourValue == 128) {
         // White - nothing printed
         rgb1[0]=255;
         rgb1[1]=255;
         rgb1[2]=255;
         return rgb1;
+    } else {
+        rgb1[0]=0;
+        rgb1[1]=0;
+        rgb1[2]=0;        
+        if (colourValue == 0 || colourValue == 1) return rgb1; // Black
     }
     if (isNthBitSet(colourValue, 0) ) {
         // Black - default
+        blackSet = 1;
     }
     if (isNthBitSet(colourValue, 1) ) {
-        // Magenta
-        rgb1[0] = (rgb1[0] + 255) /2;
-        rgb1[1] |= 0;
-        rgb1[2] |= (rgb1[2] + 255) /2;
+        // Magenta FF00FF
+        if (blackSet || rgb1[0]>0) {
+            rgb1[0] = (rgb1[0] + 255) /2;
+        } else {
+            rgb1[0] = 255;
+        }
+        if (rgb1[1]>0) rgb1[1] = (rgb1[1] + 0) /2;
+        if (blackSet || rgb1[2]>0) {
+            rgb1[2] = (rgb1[2] + 255) /2;
+        } else {
+            rgb1[2] = 255;
+        }
     }
     if (isNthBitSet(colourValue, 2) ) {
-        // Cyan
-        rgb1[0] |= 0;
-        rgb1[1] |= (rgb1[1] + 255) /2;
-        rgb1[2] |= (rgb1[2] + 255) /2;
+        // Cyan 00FFFF
+        if (rgb1[0]>0) rgb1[0] = (rgb1[0] + 0) /2;
+        if (blackSet || rgb1[1]>0) {
+            rgb1[1] = (rgb1[1] + 255) /2;
+        } else {
+            rgb1[1] = 255;
+        }
+        if (blackSet || rgb1[2]>0) {
+            rgb1[2] = (rgb1[2] + 255) /2;
+        } else {
+            rgb1[2] = 255;
+        }
     }     
     if (isNthBitSet(colourValue, 3) ) {
-        // Violet
-        rgb1[0] |= (rgb1[0] + 238) /2;
-        rgb1[1] |= (rgb1[1] + 130) /2;
-        rgb1[2] |= (rgb1[2] + 238) /2;
+        // Violet EE82EE
+        if (blackSet || rgb1[0]>0) {
+            rgb1[0] = (rgb1[0] + 238) /2;
+        } else {
+            rgb1[0] = 238;
+        }
+        if (blackSet || rgb1[1]>0) {
+            rgb1[1] = (rgb1[1] + 130) /2;
+        } else {
+            rgb1[1] = 130;
+        }        
+        if (blackSet || rgb1[2]>0) {
+            rgb1[2] = (rgb1[2] + 238) /2;
+        } else {
+            rgb1[2] = 238;
+        }
     }
     if (isNthBitSet(colourValue, 4) ) {
-        // Yellow
-        rgb1[0] |= (rgb1[0] + 255) / 2;
-        rgb1[1] |= (rgb1[1] + 255) / 2;
-        rgb1[2] |= 0;
+        // Yellow FFFF00
+        if (blackSet || rgb1[0]>0) {
+            rgb1[0] = (rgb1[0] + 255) /2;
+        } else {
+            rgb1[0] = 255;
+        }
+        if (blackSet || rgb1[1]>0) {
+            rgb1[1] = (rgb1[1] + 255) /2;
+        } else {
+            rgb1[1] = 255;
+        }
+        if (rgb1[2]>0) rgb1[2] = (rgb1[2] + 0) /2;
     }
     if (isNthBitSet(colourValue, 5) ) {
-        // Red
-        rgb1[0] |= (rgb1[0] + 255) / 2;
-        rgb1[1] |= 0;
-        rgb1[2] |= 0;
+        // Red FF0000
+        if (blackSet || rgb1[0]>0) {
+            rgb1[0] = (rgb1[0] + 255) /2;
+        } else {
+            rgb1[0] = 255;
+        }
+        if (rgb1[1]>0) rgb1[1] = (rgb1[1] + 0) /2;
+        if (rgb1[2]>0) rgb1[2] = (rgb1[2] + 0) /2;
     }
     if (isNthBitSet(colourValue, 6) ) {
-        // Green
-        rgb1[0] |= 0;
-        rgb1[1] |= (rgb1[1] + 255) /2;
-        rgb1[2] |= 0;
+        // Green 00FF00
+        if (rgb1[0]>0) rgb1[0] = (rgb1[0] + 0) /2;
+        if (blackSet || rgb1[1]>0) {
+            rgb1[1] = (rgb1[1] + 255) /2;
+        } else {
+            rgb1[1] = 255;
+        }
+        if (rgb1[2]>0) rgb1[2] = (rgb1[2] + 0) /2;
     }
     return rgb1;
 }
 
 int write_bmp(const char *filename, int width, int height, char *rgb)
 {
-    int i, j, ipos;
+    int i, j, ipos, ppos;
     int bytesPerLine;
+    int *printerColour;
     unsigned char *line;
 
     FILE *file;    
@@ -280,14 +328,14 @@ int write_bmp(const char *filename, int width, int height, char *rgb)
         return (0);
     }
     
-    int *printerColour;
     for (i = height - 1; i >= 0; i--) {
+        ipos = width * i;
+        ppos = 0;
         for (j = 0; j < width; j++) {
-            ipos = width * i + j;
-            printerColour = lookupColour(rgb[ipos]);
-            line[3 * j] = printerColour[2];
-            line[3 * j + 1] = printerColour[1];
-            line[3 * j + 2] = printerColour[0];
+            printerColour = lookupColour(rgb[ipos + j]);
+            line[ppos++] = printerColour[2];
+            line[ppos++] = printerColour[1];
+            line[ppos++] = printerColour[0];
         }
         fwrite(line, bytesPerLine, 1, file);
     }
@@ -742,7 +790,7 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
         // MOVX 0100 xxxx - space to move -8 to 7
         if (parameter > 7) parameter = 7 - parameter;
         thisDefaultUnit = defaultUnit;
-        if (defaultUnit == 0) thisDefaultUnit = (float) printerdpiv / (float) 360; // Default for command is 1/360 inch units        
+        if (defaultUnit == 0) thisDefaultUnit = printerdpiv / (float) 360; // Default for command is 1/360 inch units        
         xpos2 = xpos + parameter * moveSize * thisDefaultUnit;
         if (xpos2 >= marginleftp && xpos2 <= marginrightp) xpos = xpos2;
         break;
@@ -779,7 +827,7 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
             if (parameter > 32767) parameter = 32767 - parameter;
         }
         thisDefaultUnit = defaultUnit;
-        if (defaultUnit == 0) thisDefaultUnit = (float) printerdpiv / (float) 360; // Default for command is 1/360 inch units        
+        if (defaultUnit == 0) thisDefaultUnit = printerdpiv / (float) 360; // Default for command is 1/360 inch units        
         xpos2 = xpos + parameter * moveSize * thisDefaultUnit;
         if (xpos2 >= marginleftp && xpos2 <= marginrightp) xpos = xpos2;
         break;
@@ -787,7 +835,7 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
         // MOVY 0110 xxxx - space to move down 0 to 15 units
         // See ESC ( U command for unit
         thisDefaultUnit = defaultUnit;
-        if (defaultUnit == 0) thisDefaultUnit = (float) printerdpiv / (float) 360; // Default for command is 1/360 inch units
+        if (defaultUnit == 0) thisDefaultUnit = printerdpiv / (float) 360; // Default for command is 1/360 inch units
         ypos = ypos + (parameter * thisDefaultUnit);
         test_for_new_paper();
         if (compressMode == 3) {
@@ -835,7 +883,7 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
             parameter = nL + (256 * nH);
         }
         thisDefaultUnit = defaultUnit;
-        if (defaultUnit == 0) thisDefaultUnit = (float) printerdpiv / (float) 360; // Default for command is 1/360 inch units
+        if (defaultUnit == 0) thisDefaultUnit = printerdpiv / (float) 360; // Default for command is 1/360 inch units
         ypos = ypos + (parameter * thisDefaultUnit);
         test_for_new_paper();
         if (compressMode == 3) {
@@ -1175,135 +1223,135 @@ void bitimage_graphics(int mode, int dotColumns) {
     switch (mode) {
     case 0:  // 60 x 60 dpi 9 needles
         needles = 9;
-        hPixelWidth = (float) printerdpih / (float) 60;
-        vPixelWidth = (float) printerdpiv / (float) 60;  // ESCP2 definition - ESCP was 72 dpi
+        hPixelWidth = printerdpih / (float) 60;
+        vPixelWidth = printerdpiv / (float) 60;  // ESCP2 definition - ESCP was 72 dpi
         _8pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
         break;
     case 1:  // 120 x 60 dpi 9 needles
         needles = 9;
-        hPixelWidth = (float) printerdpih / (float) 120;
-        vPixelWidth = (float) printerdpiv / (float) 60;  // ESCP2 definition - ESCP was 72 dpi
+        hPixelWidth = printerdpih / (float) 120;
+        vPixelWidth = printerdpiv / (float) 60;  // ESCP2 definition - ESCP was 72 dpi
         _8pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
         break;
     case 2:
         // 120 x 60 dpi 9 needles - not adjacent dot printing
         needles = 9;
-        hPixelWidth = (float) printerdpih / (float) 120;
-        vPixelWidth = (float) printerdpiv / (float) 60;  // ESCP2 definition - ESCP was 72 dpi
+        hPixelWidth = printerdpih / (float) 120;
+        vPixelWidth = printerdpiv / (float) 60;  // ESCP2 definition - ESCP was 72 dpi
         _8pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 0);
         break;
     case 3:
         // 240 x 60 dpi 9 needles - not adjacent dot printing 
         needles = 9;
-        hPixelWidth = (float) printerdpih / (float) 240;
-        vPixelWidth = (float) printerdpiv / (float) 60;  // ESCP2 definition - ESCP was 72 dpi
+        hPixelWidth = printerdpih / (float) 240;
+        vPixelWidth = printerdpiv / (float) 60;  // ESCP2 definition - ESCP was 72 dpi
         _8pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 0);
         break;
     case 4:  // 80 x 60 dpi 9 needles
         needles = 9;
-        hPixelWidth = (float) printerdpih / (float) 80;
-        vPixelWidth = (float) printerdpiv / (float) 60; // ESCP2 definition - ESCP was 72 dpi
+        hPixelWidth = printerdpih / (float) 80;
+        vPixelWidth = printerdpiv / (float) 60; // ESCP2 definition - ESCP was 72 dpi
         _8pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
         break;
     case 5:  // 72 x 72 dpi 9 needles - unused in ESC/P2
         needles = 9;
-        hPixelWidth = (float) printerdpih / (float) 72;
-        vPixelWidth = (float) printerdpiv / (float) 60; // ESCP2 definition - ESCP was 72 dpi
+        hPixelWidth = printerdpih / (float) 72;
+        vPixelWidth = printerdpiv / (float) 60; // ESCP2 definition - ESCP was 72 dpi
         _8pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
         break;
     case 6:  // 90 x 60 dpi 9 needles
         needles = 9;
-        hPixelWidth = (float) printerdpih / (float) 90;
-        vPixelWidth = (float) printerdpiv / (float) 60; // ESCP2 definition - ESCP was 72 dpi
+        hPixelWidth = printerdpih / (float) 90;
+        vPixelWidth = printerdpiv / (float) 60; // ESCP2 definition - ESCP was 72 dpi
         _8pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
         break;
     case 7:  // 144 x 72 dpi 9 needles (ESC/P only)
         needles = 9;
-        hPixelWidth = (float) printerdpih / (float) 144;
-        vPixelWidth = (float) printerdpiv / (float) 60; // ESCP2 definition - ESCP was 72 dpi
+        hPixelWidth = printerdpih / (float) 144;
+        vPixelWidth = printerdpiv / (float) 60; // ESCP2 definition - ESCP was 72 dpi
         _8pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
         break;
     case 32:  // 60 x 180 dpi, 24 dots per column - row = 3 bytes
         needles = 24;
-        hPixelWidth = (float) printerdpih / (float) 60;
-        vPixelWidth = (float) printerdpiv / (float) 180;  // Das sind hier 1.2 
+        hPixelWidth = printerdpih / (float) 60;
+        vPixelWidth = printerdpiv / (float) 180;  // Das sind hier 1.2 
         // Pixels
         _24pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
         break;
     case 33:  // 120 x 180 dpi, 24 dots per column - row = 3 bytes
         needles = 24;
-        hPixelWidth = (float) printerdpih / (float) 120;
-        vPixelWidth = (float) printerdpiv / (float) 180;  // Das sind hier 1.2 
+        hPixelWidth = printerdpih / (float) 120;
+        vPixelWidth = printerdpiv / (float) 180;  // Das sind hier 1.2 
         // Pixels
         _24pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
         break;
     case 35:  // Resolution not verified possibly 240x216 sein
         needles = 24;
-        hPixelWidth = (float) printerdpih / (float) 240;
-        vPixelWidth = (float) printerdpiv / (float) 180;  // Das sind hier 1.2 
+        hPixelWidth = printerdpih / (float) 240;
+        vPixelWidth = printerdpiv / (float) 180;  // Das sind hier 1.2 
         // Pixels
         _24pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
         break;
     case 38:  // 90 x 180 dpi, 24 dots per column - row = 3 bytes
         needles = 24;
-        hPixelWidth = (float) printerdpih / (float) 90;
-        vPixelWidth = (float) printerdpiv / (float) 180;  // Das sind hier 1.2 
+        hPixelWidth = printerdpih / (float) 90;
+        vPixelWidth = printerdpiv / (float) 180;  // Das sind hier 1.2 
         // Pixels
         _24pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
         break;
     case 39:  // 180 x 180 dpi, 24 dots per column - row = 3 bytes
         needles = 24;
-        hPixelWidth = (float) printerdpih / (float) 180;
-        vPixelWidth = (float) printerdpiv / (float) 180;  // Das sind hier 1.2 
+        hPixelWidth = printerdpih / (float) 180;
+        vPixelWidth = printerdpiv / (float) 180;  // Das sind hier 1.2 
         // Pixels
         _24pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
         break;
     case 40:  // 360 x 180 dpi, 24 dots per column - row = 3 bytes - not adjacent dot
         needles = 24;
-        hPixelWidth = (float) printerdpih / (float) 360;
-        vPixelWidth = (float) printerdpiv / (float) 180;  // Das sind hier 1.2 
+        hPixelWidth = printerdpih / (float) 360;
+        vPixelWidth = printerdpiv / (float) 180;  // Das sind hier 1.2 
         // Pixels
         _24pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 0);
         break;
     case 64:  // 60 x 60 dpi, 48 dots per column - row = 6 bytes
         needles = 48;
-        hPixelWidth = (float) printerdpih / (float) 60;
-        vPixelWidth = (float) printerdpiv / (float) 60;  // Das sind hier 1.2 
+        hPixelWidth = printerdpih / (float) 60;
+        vPixelWidth = printerdpiv / (float) 60;  // Das sind hier 1.2 
         // Pixels
         _48pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
         break;
     case 65:  // 120 x 120 dpi, 48 dots per column - row = 6 bytes
         needles = 48;
-        hPixelWidth = (float) printerdpih / (float) 120;
-        vPixelWidth = (float) printerdpiv / (float) 120;  // Das sind hier 1.2 
+        hPixelWidth = printerdpih / (float) 120;
+        vPixelWidth = printerdpiv / (float) 120;  // Das sind hier 1.2 
         // Pixels
         _48pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
         break;
     case 70:  // 90 x 180 dpi, 48 dots per column - row = 6 bytes
         needles = 48;
-        hPixelWidth = (float) printerdpih / (float) 90;
-        vPixelWidth = (float) printerdpiv / (float) 180;  // Das sind hier 1.2 
+        hPixelWidth = printerdpih / (float) 90;
+        vPixelWidth = printerdpiv / (float) 180;  // Das sind hier 1.2 
         // Pixels
         _48pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
         break;
     case 71:  // 180 x 360 dpi, 48 dots per column - row = 6 bytes
         needles = 48;
-        hPixelWidth = (float) printerdpih / (float) 180;
-        vPixelWidth = (float) printerdpiv / (float) 360;  // Das sind hier 1.2 
+        hPixelWidth = printerdpih / (float) 180;
+        vPixelWidth = printerdpiv / (float) 360;  // Das sind hier 1.2 
         // Pixels
         _48pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
         break;
     case 72:  // 360 x 360 dpi, 48 dots per column - row = 6 bytes - no adjacent dot printing
         needles = 48;
-        hPixelWidth = (float) printerdpih / (float) 360;
-        vPixelWidth = (float) printerdpiv / (float) 360;  // Das sind hier 1.2 
+        hPixelWidth = printerdpih / (float) 360;
+        vPixelWidth = printerdpiv / (float) 360;  // Das sind hier 1.2 
         // Pixels
         _48pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 0);
         break;
     case 73:  // 360 x 360 dpi, 48 dots per column - row = 6 bytes
         needles = 48;
-        hPixelWidth = (float) printerdpih / (float) 360;
-        vPixelWidth = (float) printerdpiv / (float) 360;  // Das sind hier 1.2 
+        hPixelWidth = printerdpih / (float) 360;
+        vPixelWidth = printerdpiv / (float) 360;  // Das sind hier 1.2 
         // Pixels
         _48pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
         break;
@@ -1345,8 +1393,8 @@ int printcharx(unsigned char chr)
 
     chr2 = (unsigned int) chr;
     adressOfChar = chr2 << 4;  // Multiply with 16 to Get Adress
-    hPixelWidth = (float) printerdpih / (float) cdpih;
-    vPixelWidth = (float) printerdpiv / (float) cdpiv;
+    hPixelWidth = printerdpih / (float) cdpih;
+    vPixelWidth = printerdpiv / (float) cdpiv;
     character_spacing = 0;
     
     // Take into account the expected size of the font for a 24 pin printer:
@@ -1357,13 +1405,13 @@ int printcharx(unsigned char chr)
         // -- uses (360 / cpi) x 24 pixel font - default is 10 cpi (36 dots), 12 cpi (10 dots), 15 cpi (24 dots)
         fontDotWidth = (float) hPixelWidth * (((float) 360 / (float) cpi) / (float) 8);
         fontDotHeight = (float) vPixelWidth * ((float) charHeight / (float) 16);
-        if (chrSpacing > 0) character_spacing = (float) printerdpih * ((float) chrSpacing / (float) 180);
+        if (chrSpacing > 0) character_spacing = printerdpih * ((float) chrSpacing / (float) 180);
     } else {
         // DRAFT QUALITY 120 x 144 dpi
         // -- uses (120 / cpi) x 24 pixel font - default is 10 cpi (12 dots), 12 cpi (10 dots), 15 cpi (8 dots)
         fontDotWidth = (float) hPixelWidth * (((float) 120 / (float) cpi) / (float) 8);
         fontDotHeight = (float) vPixelWidth * ((float) charHeight / (float) 16);
-        if (chrSpacing > 0) character_spacing = (float) printerdpih * ((float) chrSpacing / (float) 120);
+        if (chrSpacing > 0) character_spacing = printerdpih * ((float) chrSpacing / (float) 120);
     }
     
     // eigentlich sollte 
@@ -1525,8 +1573,8 @@ int print_space(int showUnderline)
     int boldoffset = 0;
     int boldoffset11= 0;     
 
-    hPixelWidth = (float) printerdpih / (float) cdpih;
-    vPixelWidth = (float) printerdpiv / (float) cdpiv;
+    hPixelWidth = printerdpih / (float) cdpih;
+    vPixelWidth = printerdpiv / (float) cdpiv;
     character_spacing = 0;
     
     // Take into account the expected size of the font for a 24 pin printer:
@@ -1543,13 +1591,13 @@ int print_space(int showUnderline)
         // -- uses (360 / cpi) x 24 pixel font - default is 10 cpi (36 dots), 12 cpi (10 dots), 15 cpi (24 dots)
         fontDotWidth = (float) hPixelWidth * (((float) 360 / (float) cpi) / (float) 8);
         fontDotHeight = (float) vPixelWidth * (float) charHeight / (float) 16;
-        if (chrSpacing > 0) character_spacing = (float) printerdpih * ((float) chrSpacing / (float) 180);
+        if (chrSpacing > 0) character_spacing = printerdpih * ((float) chrSpacing / (float) 180);
     } else {
         // DRAFT QUALITY 120 x 144 dpi
         // -- uses (120 / cpi) x 24 pixel font - default is 10 cpi (12 dots), 12 cpi (10 dots), 15 cpi (8 dots)
         fontDotWidth = (float) hPixelWidth * (((float) 120 / (float) cpi) / (float) 8);
         fontDotHeight = (float) vPixelWidth * (float) charHeight / (float) 16;
-        if (chrSpacing > 0) character_spacing = (float) printerdpih * ((float) chrSpacing / (float) 180);
+        if (chrSpacing > 0) character_spacing = printerdpih * ((float) chrSpacing / (float) 180);
     }
     
     test_for_new_paper();
@@ -2029,8 +2077,8 @@ main_loop_for_printing:
                     cpi                    =  10;
                     pitch                  =  10;
                     multipoint_mode        =   0;
-                    hmi                    = (float) printerdpih * ((float) 36 / (float) 360); // Reset HMI
-                    line_spacing           = (float) printerdpiv * ((float) 1 / (float) 6); // normally 1/6 inch line spacing
+                    hmi                    = printerdpih * ((float) 36 / (float) 360); // Reset HMI
+                    line_spacing           = printerdpiv * ((float) 1 / (float) 6); // normally 1/6 inch line spacing
                     chrSpacing             =   0;
                     dpih                   = 240; 
                     dpiv                   = 216;
@@ -2074,24 +2122,24 @@ main_loop_for_printing:
                     
                     switch (v) {
                         case 5:
-                            vPixelWidth = (float) printerdpiv / (float) 720;
+                            vPixelWidth = printerdpiv / (float) 720;
                             break;
                         case 10:
-                            vPixelWidth = (float) printerdpiv / (float) 360;
+                            vPixelWidth = printerdpiv / (float) 360;
                             break;                                
                         case 20:
-                            vPixelWidth = (float) printerdpiv / (float) 180;
+                            vPixelWidth = printerdpiv / (float) 180;
                             break;                                
                     }
                     switch (h) {
                         case 5:
-                            hPixelWidth = (float) printerdpih / (float) 720;
+                            hPixelWidth = printerdpih / (float) 720;
                             break;
                         case 10:
-                            hPixelWidth = (float) printerdpih / (float) 360;
+                            hPixelWidth = printerdpih / (float) 360;
                             break;                                
                         case 20:
-                            hPixelWidth = (float) printerdpih / (float) 180;
+                            hPixelWidth = printerdpih / (float) 180;
                             break;                                
                     }
                     dotColumns = nH << 8;
@@ -2117,7 +2165,7 @@ main_loop_for_printing:
                     break;
                 case '+':    // Set n/360-inch line spacing ESC + n
                     state = read_byte_from_printer((char *) &xd);
-                    line_spacing = (float) printerdpiv * ((float) xd / (float) 360);                   
+                    line_spacing = printerdpiv * ((float) xd / (float) 360);                   
                     break; 
                 case '(':    
                     state = read_byte_from_printer((char *) &nL);
@@ -2133,7 +2181,7 @@ main_loop_for_printing:
                         if (state == 0) break;
                         state = read_byte_from_printer((char *) &mH);
                         thisDefaultUnit = defaultUnit;
-                        if (defaultUnit == 0) thisDefaultUnit = (float) printerdpiv / (float) 360; // Default for command is 1/360 inch units
+                        if (defaultUnit == 0) thisDefaultUnit = printerdpiv / (float) 360; // Default for command is 1/360 inch units
                         // pageLength = ((mH * 256) + mL) * thisDefaultUnit;
                         ypos = 0;
                         margintopp = 0;
@@ -2154,7 +2202,7 @@ main_loop_for_printing:
                         if (state == 0) break;
                         state = read_byte_from_printer((char *) &bH);
                         thisDefaultUnit = defaultUnit;
-                        if (defaultUnit == 0) thisDefaultUnit = (float) printerdpiv / (float) 360; // Default for command is 1/360 inch units
+                        if (defaultUnit == 0) thisDefaultUnit = printerdpiv / (float) 360; // Default for command is 1/360 inch units
                         margintopp = ((tH * 256) + tL) * thisDefaultUnit;
                         marginbottomp = ((bH * 256) + bL) * thisDefaultUnit;
                         if (marginbottomp > 22 * printerdpih) marginbottomp = 22 * printerdpih; // Max 22 inches
@@ -2171,10 +2219,10 @@ main_loop_for_printing:
                         if (state == 0) break;
                         state = read_byte_from_printer((char *) &mH);
                         thisDefaultUnit = defaultUnit;
-                        if (defaultUnit == 0) thisDefaultUnit = (float) printerdpiv / (float) 360; // Default for command is 1/360 inch units
+                        if (defaultUnit == 0) thisDefaultUnit = printerdpiv / (float) 360; // Default for command is 1/360 inch units
                         ypos2 = margintopp + ((mH * 256) + mL) * thisDefaultUnit;
                         // Ignore if movement is more than 179/360" upwards
-                        if (ypos2 < (ypos - ((float) printerdpiv * ((float) 179/(float) 360))) ) ypos2 = ypos;
+                        if (ypos2 < (ypos - (printerdpiv * ((float) 179/(float) 360))) ) ypos2 = ypos;
                         // Ignore if command would move upwards after graphics command sent on current line, or above where graphics have 
                         // previously been printed - to be written.
                         ypos = ypos2;
@@ -2190,14 +2238,14 @@ main_loop_for_printing:
                         if (state == 0) break;
                         state = read_byte_from_printer((char *) &mH); 
                         thisDefaultUnit = defaultUnit;
-                        if (defaultUnit == 0) thisDefaultUnit = (float) printerdpiv / (float) 360; // Default for command is 1/360 inch units
+                        if (defaultUnit == 0) thisDefaultUnit = printerdpiv / (float) 360; // Default for command is 1/360 inch units
                         if (mH > 127) {
                             // Handle negative movement
                             mH = 127 - mH;
                         }
                         ypos2 = ypos + ((mH * 256) + mL) * thisDefaultUnit;
                         // Ignore if movement is more than 179/360" upwards
-                        if (ypos2 < (ypos - ((float) printerdpiv * ((float) 179/(float) 360))) ) ypos2 = ypos;                        
+                        if (ypos2 < (ypos - (printerdpiv * ((float) 179/(float) 360))) ) ypos2 = ypos;                        
                         // ignore if command would move upwards after graphics command sent on current line, or above where graphics have 
                         // previously been printed - to be written
                         if (ypos2 < margintopp) {
@@ -2214,7 +2262,7 @@ main_loop_for_printing:
                         state = read_byte_from_printer((char *) &nH); // Always 0 
                         if (state == 0) break;
                         state = read_byte_from_printer((char *) &m);
-                        defaultUnit = ((float) m / (float) 3600) * (float) printerdpiv; // set default unit to m/3600 inches
+                        defaultUnit = ((float) m / (float) 3600) * printerdpiv; // set default unit to m/3600 inches
                         break;
                     case 'i': 
                         // ESC ( i 01 00 n  Select microweave print mode
@@ -2236,7 +2284,7 @@ main_loop_for_printing:
                     state = read_byte_from_printer((char *) &nH);
                     if (state == 0) break;
                     thisDefaultUnit = defaultUnit;
-                    if (defaultUnit == 0) thisDefaultUnit = (float) printerdpih / (float) 60; // Default for command is 1/180 inch units in LQ mode
+                    if (defaultUnit == 0) thisDefaultUnit = printerdpih / (float) 60; // Default for command is 1/180 inch units in LQ mode
                     xpos2 = ((nH * 256) + nL) * thisDefaultUnit + marginleftp;
                     if (xpos2 > marginrightp) {
                         // No action
@@ -2252,9 +2300,9 @@ main_loop_for_printing:
                     thisDefaultUnit = defaultUnit;
                     if (defaultUnit == 0) {
                         if (letterQuality == 1) {
-                            thisDefaultUnit = (float) printerdpih / (float) 180; // Default for command is 1/180 inch units in LQ mode
+                            thisDefaultUnit = printerdpih / (float) 180; // Default for command is 1/180 inch units in LQ mode
                         } else {
-                            thisDefaultUnit = (float) printerdpih / (float) 120; // Default for command is 1/120 inch units in draft mode
+                            thisDefaultUnit = printerdpih / (float) 120; // Default for command is 1/120 inch units in draft mode
                         }
                     }
                     if (nH > 127) {
@@ -2311,7 +2359,7 @@ main_loop_for_printing:
                     print_character(xd);
                 } else {                
                     xposold = xpos;
-                    hPixelWidth = (float) printerdpih / (float) cdpih;
+                    hPixelWidth = printerdpih / (float) cdpih;
                     if (letterQuality == 1) {
                         hPixelWidth = (float) hPixelWidth * (((float) 360 / (float) cpi) / (float) 8);
                     } else {
@@ -2426,7 +2474,7 @@ main_loop_for_printing:
                 if (print_controlcodes) {
                     print_character(xd);
                 } else {
-                    hmi = (float) printerdpih * ((float) 36 / (float) 360); // Reset HMI
+                    hmi = printerdpih * ((float) 36 / (float) 360); // Reset HMI
                     if (multipoint_mode == 0) double_width_single_line = 1;
                 }
                 break;
@@ -2434,7 +2482,7 @@ main_loop_for_printing:
                 if (print_controlcodes) {
                     print_character(xd);
                 } else {
-                    hmi = (float) printerdpih * ((float) 36 / (float) 360); // Reset HMI
+                    hmi = printerdpih * ((float) 36 / (float) 360); // Reset HMI
                     if (multipoint_mode == 0) {                
                         if (pitch==10) cpi=17.14;
                         if (pitch==12) cpi=20;
@@ -2456,7 +2504,7 @@ main_loop_for_printing:
                 if (print_controlcodes) {
                     print_character(xd);
                 } else {                
-                    hmi = (float) printerdpih * ((float) 36 / (float) 360); // Reset HMI
+                    hmi = printerdpih * ((float) 36 / (float) 360); // Reset HMI
                     if (pitch==10) cpi=10;
                     if (pitch==12) cpi=12;
                     // Add for proportional font = full width
@@ -2478,7 +2526,7 @@ main_loop_for_printing:
                     // Intended to turn off, stop or interrupt an ancillary device, or for
                     // any other device control function.
                     // Also turns off double-width printing for one line
-                    hmi = (float) printerdpih * ((float) 36 / (float) 360); // Reset HMI
+                    hmi = printerdpih * ((float) 36 / (float) 360); // Reset HMI
                     double_width_single_line = 0;
                 }
                 break;
@@ -2522,8 +2570,8 @@ main_loop_for_printing:
                 break;
             case 255:
                 xposold = xpos;
-                hPixelWidth = (float) printerdpih / (float) cdpih;
-                vPixelWidth = (float) printerdpiv / (float) cdpiv; 
+                hPixelWidth = printerdpih / (float) cdpih;
+                vPixelWidth = printerdpiv / (float) cdpiv; 
                 int charHeight = 24;
                 if (letterQuality == 1) {
                     hPixelWidth = (float) hPixelWidth * (((float) 360 / (float) cpi) / (float) 8);
@@ -2552,8 +2600,8 @@ main_loop_for_printing:
                     cpi                    =  10;
                     pitch                  =  10;
                     multipoint_mode        =   0;
-                    hmi                    = (float) printerdpih * ((float) 36 / (float) 360); // Reset HMI
-                    line_spacing           = (float) printerdpiv * ((float) 1 / (float) 6); // normally 1/6 inch line spacing
+                    hmi                    = printerdpih * ((float) 36 / (float) 360); // Reset HMI
+                    line_spacing           = printerdpiv * ((float) 1 / (float) 6); // normally 1/6 inch line spacing
                     chrSpacing             =   0;
                     dpih                   = 240; 
                     dpiv                   = 216;
@@ -2579,56 +2627,56 @@ main_loop_for_printing:
                     vTabulatorsCancelled   =   0;
                     break;                        
                 case '0':    //Select 1/8 inch line spacing 
-                    line_spacing = (float) printerdpiv * ((float) 1 / (float) 8);
+                    line_spacing = printerdpiv * ((float) 1 / (float) 8);
                     break;
                 case '1':    //Select 7/72 inch line spacing 
-                    line_spacing = (float) printerdpiv * ((float) 7 / (float) 72);
+                    line_spacing = printerdpiv * ((float) 7 / (float) 72);
                     break;
                 case '2':    // Select 1/6-inch line spacing
-                    line_spacing = (float) printerdpiv * ((float) 1 / (float) 6);
+                    line_spacing = printerdpiv * ((float) 1 / (float) 6);
                     break;
                 case '3':    // Set n/180-inch line spacing ESC 3 n
                     state = read_byte_from_printer((char *) &xd);
-                    line_spacing = (float) printerdpiv * ((float) xd / (float) 180);
+                    line_spacing = printerdpiv * ((float) xd / (float) 180);
                     break;                        
                 case '+':    // Set n/360-inch line spacing ESC + n
                     state = read_byte_from_printer((char *) &xd);
-                    line_spacing = (float) printerdpiv * ((float) xd / (float) 360);
+                    line_spacing = printerdpiv * ((float) xd / (float) 360);
                     break;                        
                 case 'A':    // ESC A n Set n/60 inches (24 pin printer - ESC/P2 or ESC/P) or
                     // n/72 inches line spacing (9 pin printer)
                     state = read_byte_from_printer((char *) &xd);
                     if (needles == 9) {
-                        line_spacing = (float) printerdpiv * ((float) xd / (float) 72);
+                        line_spacing = printerdpiv * ((float) xd / (float) 72);
                     } else {  // needles must be 24 here
-                        line_spacing = (float) printerdpiv * ((float) xd / (float) 60);
+                        line_spacing = printerdpiv * ((float) xd / (float) 60);
                     }
                     break;
                 case 'M':    // ESC M Select 10.5-point, 12-cpi
                     // Note - if printer in proportional mode, only takes effect when exits proportional mode
                     multipoint_mode = 0;
-                    hmi = (float) printerdpih * ((float) 36 / (float) 360); // Reset HMI
+                    hmi = printerdpih * ((float) 36 / (float) 360); // Reset HMI
                     cpi = 12;
                     pitch=12;
                     break;                        
                 case 'P':     // ESC P Set 10.5-point, 10-cpi
                     // Note - if printer in proportional mode, only takes effect when exits proportional mode
                     multipoint_mode = 0;
-                    hmi = (float) printerdpih * ((float) 36 / (float) 360); // Reset HMI
+                    hmi = printerdpih * ((float) 36 / (float) 360); // Reset HMI
                     cpi = 10;
                     pitch=10;
                     break;
                 case 'g':    // ESC g Select 10.5-point, 15-cpi
                     // Note - if printer in proportional mode, only takes effect when exits proportional mode
                     multipoint_mode = 0;
-                    hmi = (float) printerdpih * ((float) 36 / (float) 360); // Reset HMI
+                    hmi = printerdpih * ((float) 36 / (float) 360); // Reset HMI
                     cpi = 15;
                     pitch=15;
                     break;
                 case 'l':    // ESC l m set the left margin m in characters
                     state = read_byte_from_printer((char *) &xd);
                     marginleft = (int) xd;
-                    marginleftp = ((float) printerdpih / (float) cpi) * (float) marginleft;  // rand in pixels
+                    marginleftp = (printerdpih / (float) cpi) * (float) marginleft;  // rand in pixels
                     // von links
                     // Wenn Marginleft ausserhalb des bereiches dann auf 0 setzen
                     // (fehlerbehandlung)
@@ -2641,7 +2689,7 @@ main_loop_for_printing:
                         // maximum 32 tabs are allowed last
                         // tab is always 0 to finish list
                         state = read_byte_from_printer((char *) &xd);
-                        xd = ((float) printerdpih / (float) cpi) * (float) xd; // each tab is specified in number of characters in current character pitch
+                        xd = (printerdpih / (float) cpi) * (float) xd; // each tab is specified in number of characters in current character pitch
                         if (i > 0 && xd < hTabulators[i-1]) {
                             // Value less than previous tab setting ends the settings like NUL
                             xd = 0;
@@ -2727,12 +2775,12 @@ main_loop_for_printing:
                 case 'Q':    // ESC Q m set the right margin
                     state = read_byte_from_printer((char *) &xd);
                     marginright = (int) xd;
-                    marginrightp = ((float) printerdpih / (float) cpi) * (float) marginright;  // rand in pixels
+                    marginrightp = (printerdpih / (float) cpi) * (float) marginright;  // rand in pixels
                     // von links
                     break;
                 case 'J':    // ESC J m Forward paper feed m/180 inches (ESC/P2)
                     state = read_byte_from_printer((char *) &xd);
-                    ypos = ypos + (float) xd * ((float) printerdpiv / (float) 180);
+                    ypos = ypos + (float) xd * (printerdpiv / (float) 180);
                     test_for_new_paper();
                     break;
                 case '?':    // ESC ? n m re-assign bit image mode
@@ -2804,9 +2852,9 @@ main_loop_for_printing:
                     if (state == 0) break;
                     state = read_byte_from_printer((char *) &nH); 
                     if (state == 0) break;
-                    hPixelWidth = (float) printerdpih / (float) 60;
-                    if (m == 1) hPixelWidth = (float) printerdpih / (float) 120;
-                    vPixelWidth = (float) printerdpiv / (float) 72;
+                    hPixelWidth = printerdpih / (float) 60;
+                    if (m == 1) hPixelWidth = printerdpih / (float) 120;
+                    vPixelWidth = printerdpiv / (float) 72;
                     dotColumns = nH << 8;
                     dotColumns = dotColumns | nL;
                     _9pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
@@ -2861,7 +2909,7 @@ main_loop_for_printing:
                     // or 48 on --> n=1 or 49
                     // not implemented yet
                     multipoint_mode = 0;
-                    hmi = (float) printerdpih * ((float) 36 / (float) 360); // Reset HMI
+                    hmi = printerdpih * ((float) 36 / (float) 360); // Reset HMI
                     state = read_byte_from_printer((char *) &nL);
                     if ((nL==1) || (nL==49)) {
                         letterQuality = 1;
@@ -2893,7 +2941,7 @@ main_loop_for_printing:
                     break;
                 case 'W':    // ESC W SELECT DOUBLE WIDTH
                     state = read_byte_from_printer((char *) &nL);
-                    hmi = (float) printerdpih * ((float) 36 / (float) 360); // Reset HMI
+                    hmi = printerdpih * ((float) 36 / (float) 360); // Reset HMI
                     if (multipoint_mode == 0) {
                         if ((nL==1) || (nL==49)) double_width=1;
                         if ((nL==0) || (nL==48)) {
@@ -2904,7 +2952,7 @@ main_loop_for_printing:
                     break;                        
                 case 'w':    // ESC w SELECT DOUBLE HEIGHT
                     state = read_byte_from_printer((char *) &nL);
-                    hmi = (float) printerdpih * ((float) 36 / (float) 360); // Reset HMI
+                    hmi = printerdpih * ((float) 36 / (float) 360); // Reset HMI
                     if (multipoint_mode == 0) {
                         if ((nL==1) || (nL==49)) {
                             double_height=1;
@@ -2940,7 +2988,7 @@ main_loop_for_printing:
                     break;
                 case '!':    // ESC ! n Master Font Select
                     multipoint_mode = 0;
-                    hmi = (float) printerdpih * ((float) 36 / (float) 360); // Reset HMI
+                    hmi = printerdpih * ((float) 36 / (float) 360); // Reset HMI
                     state = read_byte_from_printer((char *) &nL);
                     if ( isNthBitSet(nL, 0) ) {
                         // 12 CPI
@@ -3102,7 +3150,7 @@ main_loop_for_printing:
                         if (state == 0) break;
                         state = read_byte_from_printer((char *) &mH);
                         thisDefaultUnit = defaultUnit;
-                        if (defaultUnit == 0) thisDefaultUnit = (float) printerdpiv / (float) 360; // Default for command is 1/360 inch units
+                        if (defaultUnit == 0) thisDefaultUnit = printerdpiv / (float) 360; // Default for command is 1/360 inch units
                         // pageLength = ((mH * 256) + mL) * thisDefaultUnit;
                         ypos = 0;
                         margintopp = 0;
@@ -3123,7 +3171,7 @@ main_loop_for_printing:
                         if (state == 0) break;
                         state = read_byte_from_printer((char *) &bH);
                         thisDefaultUnit = defaultUnit;
-                        if (defaultUnit == 0) thisDefaultUnit = (float) printerdpiv / (float) 360; // Default for command is 1/360 inch units
+                        if (defaultUnit == 0) thisDefaultUnit = printerdpiv / (float) 360; // Default for command is 1/360 inch units
                         margintopp = ((tH * 256) + tL) * thisDefaultUnit;
                         marginbottomp = ((bH * 256) + bL) * thisDefaultUnit;
                         if (marginbottomp > 22 * printerdpih) marginbottomp = 22 * printerdpih; // Max 22 inches
@@ -3140,10 +3188,10 @@ main_loop_for_printing:
                         if (state == 0) break;
                         state = read_byte_from_printer((char *) &mH);
                         thisDefaultUnit = defaultUnit;
-                        if (defaultUnit == 0) thisDefaultUnit = (float) printerdpiv / (float) 360; // Default for command is 1/360 inch units
+                        if (defaultUnit == 0) thisDefaultUnit = printerdpiv / (float) 360; // Default for command is 1/360 inch units
                         ypos2 = margintopp + ((mH * 256) + mL) * thisDefaultUnit;
                         // Ignore if movement is more than 179/360" upwards
-                        if (ypos2 < (ypos - ((float) printerdpiv * ((float) 179/(float) 360))) ) ypos2 = ypos;
+                        if (ypos2 < (ypos - (printerdpiv * ((float) 179/(float) 360))) ) ypos2 = ypos;
                         // Ignore if command would move upwards after graphics command sent on current line, or above where graphics have 
                         // previously been printed - to be implemented
                         ypos = ypos2;
@@ -3159,14 +3207,14 @@ main_loop_for_printing:
                         if (state == 0) break;
                         state = read_byte_from_printer((char *) &mH); 
                         thisDefaultUnit = defaultUnit;
-                        if (defaultUnit == 0) thisDefaultUnit = (float) printerdpiv / (float) 360; // Default for command is 1/360 inch units
+                        if (defaultUnit == 0) thisDefaultUnit = printerdpiv / (float) 360; // Default for command is 1/360 inch units
                         if (mH > 127) {
                             // Handle negative movement
                             mH = 127 - mH;
                         }
                         ypos2 = ypos + ((mH * 256) + mL) * thisDefaultUnit;
                         // Ignore if movement is more than 179/360" upwards
-                        if (ypos2 < (ypos - ((float) printerdpiv * ((float) 179/(float) 360))) ) ypos2 = ypos;                        
+                        if (ypos2 < (ypos - (printerdpiv * ((float) 179/(float) 360))) ) ypos2 = ypos;                        
                         // ignore if command would move upwards after graphics command sent on current line, or above where graphics have 
                         // previously been printed - to be written
                         if (ypos2 < margintopp) {
@@ -3183,7 +3231,7 @@ main_loop_for_printing:
                         state = read_byte_from_printer((char *) &nH); // Always 0 
                         if (state == 0) break;
                         state = read_byte_from_printer((char *) &m);
-                        defaultUnit = ((float) m / (float) 3600) * (float) printerdpiv; // set default unit to m/3600 inches
+                        defaultUnit = ((float) m / (float) 3600) * printerdpiv; // set default unit to m/3600 inches
                         break;
                     case 'i': 
                         // ESC ( i 01 00 n  Select microweave print mode
@@ -3377,13 +3425,13 @@ main_loop_for_printing:
                     // not implemented yet
                     state = read_byte_from_printer((char *) &nL);
                     state = read_byte_from_printer((char *) &nH);
-                    hmi = (float) printerdpih * ((float) (nH *256) + (float) nL / (float) 360);
+                    hmi = printerdpih * ((float) (nH *256) + (float) nL / (float) 360);
                     break;                        
                 case 'X':
                     // ESC X m nL nH Select font by pitch & point
                     // not implemented yet
                     multipoint_mode = 1;
-                    hmi = (float) printerdpih * ((float) 36 / (float) 360); // Reset HMI
+                    hmi = printerdpih * ((float) 36 / (float) 360); // Reset HMI
                     state = read_byte_from_printer((char *) &m);
                     state = read_byte_from_printer((char *) &nL);
                     state = read_byte_from_printer((char *) &nH);
@@ -3454,7 +3502,7 @@ main_loop_for_printing:
                     state = read_byte_from_printer((char *) &nH);
                     if (state == 0) break;
                     thisDefaultUnit = defaultUnit;
-                    if (defaultUnit == 0) thisDefaultUnit = (float) printerdpih / (float) 60; // Default for command is 1/180 inch units in LQ mode
+                    if (defaultUnit == 0) thisDefaultUnit = printerdpih / (float) 60; // Default for command is 1/180 inch units in LQ mode
                     xpos2 = ((nH * 256) + nL) * thisDefaultUnit + marginleftp;
                     if (xpos2 > marginrightp) {
                         // No action
@@ -3470,9 +3518,9 @@ main_loop_for_printing:
                     thisDefaultUnit = defaultUnit;
                     if (defaultUnit == 0) {
                         if (letterQuality == 1) {
-                            thisDefaultUnit = (float) printerdpih / (float) 180; // Default for command is 1/180 inch units in LQ mode
+                            thisDefaultUnit = printerdpih / (float) 180; // Default for command is 1/180 inch units in LQ mode
                         } else {
-                            thisDefaultUnit = (float) printerdpih / (float) 120; // Default for command is 1/120 inch units in draft mode
+                            thisDefaultUnit = printerdpih / (float) 120; // Default for command is 1/120 inch units in draft mode
                         }
                     }
                     if (nH > 127) {
@@ -3526,7 +3574,7 @@ main_loop_for_printing:
                     break;                        
                 case 20:    // ESC SP Set intercharacter space
                     state = read_byte_from_printer((char *) &nL);
-                    hmi = (float) printerdpih * ((float) 36 / (float) 360); // Reset HMI
+                    hmi = printerdpih * ((float) 36 / (float) 360); // Reset HMI
                     if (multipoint_mode == 0) {
                         chrSpacing = nL;
                     }                    
