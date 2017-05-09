@@ -148,7 +148,7 @@ int cfileexists(const char* filename)
 }
 
 int isNthBitSet (unsigned char c, int n) {
-  return (1 & (c >> n));
+  return (c >> n);
 }
 
 struct BMPHeader {
@@ -172,21 +172,15 @@ struct BMPHeader {
 int * lookupColour(unsigned char colourValue)
 {
     // Convert printer colour (0 to 7 stored in bits of colourValue) to RGB value
+    // Not called if colourValue is White
     // Routine uses averaging to get colours such as pink (red + white)
     static int rgb1[3];
     int blackSet = 0;
-    if (colourValue == 128) {
-        // White - nothing printed
-        rgb1[0]=255;
-        rgb1[1]=255;
-        rgb1[2]=255;
-        return rgb1;
-    } else {
-        rgb1[0]=0;
-        rgb1[1]=0;
-        rgb1[2]=0;        
-        if (colourValue == 0 || colourValue == 1) return rgb1; // Black
-    }
+    rgb1[0]=0;
+    rgb1[1]=0;
+    rgb1[2]=0;        
+    if (colourValue == 0 || colourValue == 1) return rgb1; // Black
+
     if (isNthBitSet(colourValue, 0) ) {
         // Black - default
         blackSet = 1;
@@ -327,15 +321,21 @@ int write_bmp(const char *filename, int width, int height, char *rgb)
         fprintf(stderr, "Can't allocate memory for BMP file.\n");
         return (0);
     }
-    
     for (i = height - 1; i >= 0; i--) {
         ipos = width * i;
         ppos = 0;
         for (j = 0; j < width; j++) {
-            printerColour = lookupColour(rgb[ipos + j]);
-            line[ppos++] = printerColour[2];
-            line[ppos++] = printerColour[1];
-            line[ppos++] = printerColour[0];
+            if (rgb[ipos + j] == 128) {
+                // White
+                line[ppos++] = 255;
+                line[ppos++] = 255;
+                line[ppos++] = 255;
+            } else {
+                printerColour = lookupColour(rgb[ipos + j]);
+                line[ppos++] = printerColour[2];
+                line[ppos++] = printerColour[1];
+                line[ppos++] = printerColour[0];
+            }
         }
         fwrite(line, bytesPerLine, 1, file);
     }
@@ -352,8 +352,8 @@ void putpx(int x, int y)
     int pos = y * pageSetWidth + x;
     unsigned char existingPixel = printermemory[pos];
 
-    // If existing pixel is 7 (white), then we need to reset it to 0 before OR'ing the chosen colour
-    if (isNthBitSet(existingPixel, 7) ) {
+    // If existing pixel is white, then we need to reset it to 0 before OR'ing the chosen colour
+    if (existingPixel == 128) {
         printermemory[pos] = 1 << printColour;
     } else {
         printermemory[pos] |= 1 << printColour;
