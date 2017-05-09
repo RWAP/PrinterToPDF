@@ -104,6 +104,7 @@ int initialize()
     */
     inputFile = fopen("./Test1.prn", "r");
     if (inputFile == NULL) return -1;
+    timeout = 0; // When reading from a file, the timeout can be set to zero
 }
 
 int read_byte_from_printer(unsigned char *bytex)
@@ -116,8 +117,16 @@ int read_byte_from_printer(unsigned char *bytex)
     // Example below is reading a character from the file opened in initialize();
     // take account of msbsetting : 0 - use bit 7 as set in data, 1 - clear bit 7 of all data, 2 - set bit 7 of all data
 
+    if (timeout > 0) {
+        clock_gettime(CLOCK_REALTIME, &tvx);
+        startzeit = tvx.tv_sec;
+    }
     while (!feof(inputFile)) {
         databyte = fgetc(inputFile);
+        if (timeout > 0) {
+            clock_gettime(CLOCK_REALTIME, &tvx);
+            if (((tvx.tv_sec - startzeit) >= timeout)) return 0;
+        }        
         switch (msbsetting) {
         case 0:
             // No change
@@ -134,6 +143,8 @@ int read_byte_from_printer(unsigned char *bytex)
         *bytex = databyte;
         return 1;
     }
+
+    
     return 0;
 }
 
@@ -598,12 +609,9 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
   tiff_delta_loop:    
     // timeout
     state = 0;
-    clock_gettime(CLOCK_REALTIME, &tvx);
-    startzeit = tvx.tv_sec;
     while (state == 0) {
         state = read_byte_from_printer((char *) &xd);
-        clock_gettime(CLOCK_REALTIME, &tvx);
-        if (((tvx.tv_sec - startzeit) >= timeout) && (state == 0)) goto raus_tiff_delta_print;
+        if (state == 0) goto raus_tiff_delta_print;
     }
     
     // Get command into nibbles
@@ -614,24 +622,18 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
         // XFER 0010 xxxx - parameter number of raster image data 0...15
         for (opr = 0; opr < parameter; opr ++) {
             state = 0;
-            clock_gettime(CLOCK_REALTIME, &tvx);
-            startzeit = tvx.tv_sec;
             while (state == 0) {
                 state = read_byte_from_printer((char *) &repeater);
-                clock_gettime(CLOCK_REALTIME, &tvx);
-                if (((tvx.tv_sec - startzeit) >= timeout) && (state == 0)) goto raus_tiff_delta_print;
+                if (state == 0) goto raus_tiff_delta_print;
             }
             if (repeater <= 127) {
                 repeater++;
                 // string of data byes to be printed
                 for (j = 0; j < repeater; j++) {
                     state = 0;
-                    clock_gettime(CLOCK_REALTIME, &tvx);
-                    startzeit = tvx.tv_sec;                    
                     while (state == 0) {
                         state = read_byte_from_printer((char *) &xd);  // byte to be printed
-                        clock_gettime(CLOCK_REALTIME, &tvx);
-                        if (((tvx.tv_sec - startzeit) >= timeout) && (state == 0)) goto raus_tiff_delta_print;
+                        if (state == 0) goto raus_tiff_delta_print;
                     }
                     for (xByte = 0; xByte < 8; xByte++) {
                         bytePointer = printColour * pageSetWidth + xpos;
@@ -654,13 +656,10 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
             } else {
                 // Repeat following byte twos complement (repeater)
                 repeater = (256 - repeater) + 1;
-                state = 0;
-                clock_gettime(CLOCK_REALTIME, &tvx);
-                startzeit = tvx.tv_sec;                
+                state = 0;               
                 while (state == 0) {
                     state = read_byte_from_printer((char *) &xd);  // byte to be printed
-                    clock_gettime(CLOCK_REALTIME, &tvx);
-                    if (((tvx.tv_sec - startzeit) >= timeout) && (state == 0)) goto raus_tiff_delta_print;
+                    if (state == 0) goto raus_tiff_delta_print;
                 }
                 for (j = 0; j < repeater; j++) {
                     for (xByte = 0; xByte < 8; xByte++) {
@@ -688,52 +687,37 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
         // XFER 0011 xxxx - parameter number of lookups to raster printer image data 1...2
         if (parameter == 1) {
             state = 0;
-            clock_gettime(CLOCK_REALTIME, &tvx);
-            startzeit = tvx.tv_sec;
             while (state == 0) {
                 state = read_byte_from_printer((char *) &dataCount);
-                clock_gettime(CLOCK_REALTIME, &tvx);
-                if (((tvx.tv_sec - startzeit) >= timeout) && (state == 0)) goto raus_tiff_delta_print;
+                if (state == 0) goto raus_tiff_delta_print;
             }
         } else {
             state = 0;
-            clock_gettime(CLOCK_REALTIME, &tvx);
-            startzeit = tvx.tv_sec;
             while (state == 0) {
                 state = read_byte_from_printer((char *) &nL);
-                clock_gettime(CLOCK_REALTIME, &tvx);
-                if (((tvx.tv_sec - startzeit) >= timeout) && (state == 0)) goto raus_tiff_delta_print;
+                if (state == 0) goto raus_tiff_delta_print;
             }
             state = 0;
-            clock_gettime(CLOCK_REALTIME, &tvx);
-            startzeit = tvx.tv_sec;
             while (state == 0) {
                 state = read_byte_from_printer((char *) &nH);
-                clock_gettime(CLOCK_REALTIME, &tvx);
-                if (((tvx.tv_sec - startzeit) >= timeout) && (state == 0)) goto raus_tiff_delta_print;
+                if (state == 0) goto raus_tiff_delta_print;
             }
             dataCount = nL + (256 * nH);
         }
         for (opr = 0; opr < dataCount; opr ++) {
             state = 0;
-            clock_gettime(CLOCK_REALTIME, &tvx);
-            startzeit = tvx.tv_sec;
             while (state == 0) {
                 state = read_byte_from_printer((char *) &repeater);  // number of times to repeat next byte
-                clock_gettime(CLOCK_REALTIME, &tvx);
-                if (((tvx.tv_sec - startzeit) >= timeout) && (state == 0)) goto raus_tiff_delta_print;
+                if (state == 0) goto raus_tiff_delta_print;
             }
             if (repeater <= 127) {
                 repeater++;
                 // string of data byes to be printed
                 for (j = 0; j < repeater; j++) {
                     state = 0;
-                    clock_gettime(CLOCK_REALTIME, &tvx);
-                    startzeit = tvx.tv_sec;                    
                     while (state == 0) {
                         state = read_byte_from_printer((char *) &xd);  // byte to be printed
-                        clock_gettime(CLOCK_REALTIME, &tvx);
-                        if (((tvx.tv_sec - startzeit) >= timeout) && (state == 0)) goto raus_tiff_delta_print;
+                        if (state == 0) goto raus_tiff_delta_print;
                     }
                     for (xByte = 0; xByte < 8; xByte++) {
                         bytePointer = printColour * pageSetWidth + xpos;
@@ -756,13 +740,10 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
             } else {
                 // Repeat following byte twos complement (repeater)
                 repeater = (256 - repeater) + 1;
-                state = 0;
-                clock_gettime(CLOCK_REALTIME, &tvx);
-                startzeit = tvx.tv_sec;                
+                state = 0;              
                 while (state == 0) {
                     state = read_byte_from_printer((char *) &xd);  // byte to be printed
-                    clock_gettime(CLOCK_REALTIME, &tvx);
-                    if (((tvx.tv_sec - startzeit) >= timeout) && (state == 0)) goto raus_tiff_delta_print;
+                    if (state == 0) goto raus_tiff_delta_print;
                 }
                 for (j = 0; j < repeater; j++) {
                     for (xByte = 0; xByte < 8; xByte++) {
@@ -798,30 +779,21 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
         // MOVX 0101 xxxx - parameter number of lookups to movement data 1...2
         if (parameter == 1) {
             state = 0;
-            clock_gettime(CLOCK_REALTIME, &tvx);
-            startzeit = tvx.tv_sec;
             while (state == 0) {
                 state = read_byte_from_printer((char *) &parameter);
-                clock_gettime(CLOCK_REALTIME, &tvx);
-                if (((tvx.tv_sec - startzeit) >= timeout) && (state == 0)) goto raus_tiff_delta_print;
+                if (state == 0) goto raus_tiff_delta_print;
             }
             if (parameter > 127) parameter = 127 - parameter; 
         } else {
             state = 0;
-            clock_gettime(CLOCK_REALTIME, &tvx);
-            startzeit = tvx.tv_sec;
             while (state == 0) {
                 state = read_byte_from_printer((char *) &nL);
-                clock_gettime(CLOCK_REALTIME, &tvx);
-                if (((tvx.tv_sec - startzeit) >= timeout) && (state == 0)) goto raus_tiff_delta_print;
+                if (state == 0) goto raus_tiff_delta_print;
             }
             state = 0;
-            clock_gettime(CLOCK_REALTIME, &tvx);
-            startzeit = tvx.tv_sec;
             while (state == 0) {
                 state = read_byte_from_printer((char *) &nH);
-                clock_gettime(CLOCK_REALTIME, &tvx);
-                if (((tvx.tv_sec - startzeit) >= timeout) && (state == 0)) goto raus_tiff_delta_print;
+                if (state == 0) goto raus_tiff_delta_print;
             }
             parameter = nL + (256 * nH);
             if (parameter > 32767) parameter = 32767 - parameter;
@@ -856,29 +828,20 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
         // MOVY 0111 xxxx - space to move down X dots
         if (parameter == 1) {
             state = 0;
-            clock_gettime(CLOCK_REALTIME, &tvx);
-            startzeit = tvx.tv_sec;
             while (state == 0) {
                 state = read_byte_from_printer((char *) &parameter);
-                clock_gettime(CLOCK_REALTIME, &tvx);
-                if (((tvx.tv_sec - startzeit) >= timeout) && (state == 0)) goto raus_tiff_delta_print;
+                if (state == 0) goto raus_tiff_delta_print;
             } 
         } else {
             state = 0;
-            clock_gettime(CLOCK_REALTIME, &tvx);
-            startzeit = tvx.tv_sec;
             while (state == 0) {
                 state = read_byte_from_printer((char *) &nL);
-                clock_gettime(CLOCK_REALTIME, &tvx);
-                if (((tvx.tv_sec - startzeit) >= timeout) && (state == 0)) goto raus_tiff_delta_print;
+                if (state == 0) goto raus_tiff_delta_print;
             }
             state = 0;
-            clock_gettime(CLOCK_REALTIME, &tvx);
-            startzeit = tvx.tv_sec;
             while (state == 0) {
                 state = read_byte_from_printer((char *) &nH);
-                clock_gettime(CLOCK_REALTIME, &tvx);
-                if (((tvx.tv_sec - startzeit) >= timeout) && (state == 0)) goto raus_tiff_delta_print;
+                if (state == 0) goto raus_tiff_delta_print;
             }
             parameter = nL + (256 * nH);
         }
@@ -981,12 +944,9 @@ _8pin_line_bitmap_print(int dotColumns, float hPixelWidth, float vPixelWidth,
     for (opr = 0; opr < dotColumns; opr++) {
         // timeout
         state = 0;
-        clock_gettime(CLOCK_REALTIME, &tvx);
-        startzeit = tvx.tv_sec;
         while (state == 0) {
             state = read_byte_from_printer((char *) &xd);  // byte1
-            clock_gettime(CLOCK_REALTIME, &tvx);
-            if (((tvx.tv_sec - startzeit) >= timeout) && (state == 0)) goto raus_8p;
+            if (state == 0) goto raus_8p;
         }
 
         if ((dotColumns - opr) == 3) opr = opr; // SASCHA - what is this intended to do?
@@ -1016,12 +976,9 @@ _9pin_line_bitmap_print(int dotColumns, float hPixelWidth, float vPixelWidth,
     test_for_new_paper();
     for (opr = 0; opr < dotColumns; opr++) {
         state = 0;
-        clock_gettime(CLOCK_REALTIME, &tvx);
-        startzeit = tvx.tv_sec;
         while (state == 0) {
             state = read_byte_from_printer((char *) &xd);  // byte1
-            clock_gettime(CLOCK_REALTIME, &tvx);
-            if (((tvx.tv_sec - startzeit) >= timeout) && (state == 0)) goto raus_9p;
+            if (state == 0) goto raus_9p;
         }
         for (xByte = 0; xByte < 8; xByte++) {
             if (xd & 128) {
@@ -1035,12 +992,9 @@ _9pin_line_bitmap_print(int dotColumns, float hPixelWidth, float vPixelWidth,
         }
         // Read pin 9
         state = 0;
-        clock_gettime(CLOCK_REALTIME, &tvx);
-        startzeit = tvx.tv_sec;
         while (state == 0) {
             state = read_byte_from_printer((char *) &xd);  // byte2
-            clock_gettime(CLOCK_REALTIME, &tvx);
-            if (((tvx.tv_sec - startzeit) >= timeout) && (state == 0)) goto raus_9p;
+            if (state == 0) goto raus_9p;
         }
         if (xd & 1) {
             if ((adjacentDot == 0) && (precedingDot(xpos, ypos + 9 * vPixelWidth) == 1)) {
@@ -1069,13 +1023,10 @@ _24pin_line_bitmap_print(int dotColumns, float hPixelWidth, float vPixelWidth,
         for (fByte = 0; fByte < 3; fByte++) {
             ypos2 = ypos + fByte * (8 * vPixelWidth);
             state = 0;
-            clock_gettime(CLOCK_REALTIME, &tvx);
-            startzeit = tvx.tv_sec;
 
             while (state == 0) {
                 state = read_byte_from_printer((char *) &xd);  // byte1
-                clock_gettime(CLOCK_REALTIME, &tvx);
-                if (((tvx.tv_sec - startzeit) >= timeout) && (state == 0)) goto raus_24p;
+                if (state == 0) goto raus_24p;
             }
             for (xByte = 0; xByte < 8; xByte++) {
                 if (xd & 128) {
@@ -1108,13 +1059,10 @@ _48pin_line_bitmap_print(int dotColumns, float hPixelWidth, float vPixelWidth,
         for (fByte = 0; fByte < 6; fByte++) {
             ypos2 = ypos + fByte * (8 * vPixelWidth);
             state = 0;
-            clock_gettime(CLOCK_REALTIME, &tvx);
-            startzeit = tvx.tv_sec;
 
             while (state == 0) {
                 state = read_byte_from_printer((char *) &xd);  // byte1
-                clock_gettime(CLOCK_REALTIME, &tvx);
-                if (((tvx.tv_sec - startzeit) >= timeout) && (state == 0)) goto raus_48p;
+                if (state == 0) goto raus_48p;
             }
             for (xByte = 0; xByte < 8; xByte++) {
                 if (xd & 128) {
@@ -1146,24 +1094,18 @@ _line_raster_print(int bandHeight, int dotColumns, float hPixelWidth, float vPix
         if (rleEncoded) {
             for (opr = 0; opr < dotColumns; opr++) {
                 state = 0;
-                clock_gettime(CLOCK_REALTIME, &tvx);
-                startzeit = tvx.tv_sec;
                 while (state == 0) {
                     state = read_byte_from_printer((char *) &repeater);  // number of times to repeat next byte
-                    clock_gettime(CLOCK_REALTIME, &tvx);
-                    if (((tvx.tv_sec - startzeit) >= timeout) && (state == 0)) goto raus_rasterp;
+                    if (state == 0) goto raus_rasterp;
                 }
                 if (repeater <= 127) {
                     repeater++;
                     // string of data byes to be printed
                     for (j = 0; j < repeater; j++) {
-                        state = 0;
-                        clock_gettime(CLOCK_REALTIME, &tvx);
-                        startzeit = tvx.tv_sec;                    
+                        state = 0;                
                         while (state == 0) {
                             state = read_byte_from_printer((char *) &xd);  // byte to be printed
-                            clock_gettime(CLOCK_REALTIME, &tvx);
-                            if (((tvx.tv_sec - startzeit) >= timeout) && (state == 0)) goto raus_rasterp;
+                            if (state == 0) goto raus_rasterp;
                         }
                         for (xByte = 0; xByte < 8; xByte++) {
                             if (xd & 128) putpixelbig(xpos, ypos2, hPixelWidth, vPixelWidth);
@@ -1176,13 +1118,10 @@ _line_raster_print(int bandHeight, int dotColumns, float hPixelWidth, float vPix
                 } else {
                     // Repeat following byte twos complement (repeater)
                     repeater = (256 - repeater) + 1;
-                    state = 0;
-                    clock_gettime(CLOCK_REALTIME, &tvx);
-                    startzeit = tvx.tv_sec;                
+                    state = 0;              
                     while (state == 0) {
                         state = read_byte_from_printer((char *) &xd);  // byte to be printed
-                        clock_gettime(CLOCK_REALTIME, &tvx);
-                        if (((tvx.tv_sec - startzeit) >= timeout) && (state == 0)) goto raus_rasterp;
+                        if (state == 0) goto raus_rasterp;
                     }
                     for (j = 0; j < repeater; j++) {
                         for (xByte = 0; xByte < 8; xByte++) {
@@ -1198,12 +1137,9 @@ _line_raster_print(int bandHeight, int dotColumns, float hPixelWidth, float vPix
         } else {    
             for (opr = 0; opr < dotColumns; opr++) {
                 state = 0;
-                clock_gettime(CLOCK_REALTIME, &tvx);
-                startzeit = tvx.tv_sec;
                 while (state == 0) {
                     state = read_byte_from_printer((char *) &xd);  // byte1
-                    clock_gettime(CLOCK_REALTIME, &tvx);
-                    if (((tvx.tv_sec - startzeit) >= timeout) && (state == 0)) goto raus_rasterp;
+                    if (state == 0) goto raus_rasterp;
                 }
                 for (xByte = 0; xByte < 8; xByte++) {
                     if (xd & 128) putpixelbig(xpos, ypos2, hPixelWidth, vPixelWidth);
