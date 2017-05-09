@@ -1,3 +1,4 @@
+#include <gd.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -287,72 +288,32 @@ int write_bmp(const char *filename, int width, int height, char *rgb)
     unsigned char *line;
 
     FILE *file;    
-    struct BMPHeader bmph;
+    // struct BMPHeader bmph;
+struct stat statbuf;
+gdImagePtr im;
+int pixelColour;
 
-    // The length of each line must be a multiple of 4 bytes 
-    bytesPerLine = (3 * (width + 1) / 4) * 4;
-
-    strcpy(bmph.bfType, "BM");
-    bmph.bfOffBits = 54;
-    bmph.bfSize = bmph.bfOffBits + bytesPerLine * height;
-    bmph.bfReserved = 0;
-    bmph.biSize = 40;
-    bmph.biWidth = width;
-    bmph.biHeight = height;
-    bmph.biPlanes = 1;
-    bmph.biBitCount = 24;
-    bmph.biCompression = 0;
-    bmph.biSizeImage = bytesPerLine * height;
-    bmph.biXPelsPerMeter = 0;
-    bmph.biYPelsPerMeter = 0;
-    bmph.biClrUsed = 0;
-    bmph.biClrImportant = 0;
-
-    file = fopen(filename, "wb");
-    if (file == NULL) return (0);
-
-    fwrite(&bmph.bfType, 2, 1, file);
-    fwrite(&bmph.bfSize, 4, 1, file);
-    fwrite(&bmph.bfReserved, 4, 1, file);
-    fwrite(&bmph.bfOffBits, 4, 1, file);
-    fwrite(&bmph.biSize, 4, 1, file);
-    fwrite(&bmph.biWidth, 4, 1, file);
-    fwrite(&bmph.biHeight, 4, 1, file);
-    fwrite(&bmph.biPlanes, 2, 1, file);
-    fwrite(&bmph.biBitCount, 2, 1, file);
-    fwrite(&bmph.biCompression, 4, 1, file);
-    fwrite(&bmph.biSizeImage, 4, 1, file);
-    fwrite(&bmph.biXPelsPerMeter, 4, 1, file);
-    fwrite(&bmph.biYPelsPerMeter, 4, 1, file);
-    fwrite(&bmph.biClrUsed, 4, 1, file);
-    fwrite(&bmph.biClrImportant, 4, 1, file);
-
-    line = malloc(bytesPerLine);
-    if (line == NULL) {
-        fprintf(stderr, "Can't allocate memory for BMP file.\n");
-        return (0);
-    }
+	im = gdImageCreateTrueColor(width, height);
     for (i = height - 1; i >= 0; i--) {
         ipos = width * i;
         ppos = 0;
         for (j = 0; j < width; j++) {
             if (rgb[ipos + j] == 128) {
                 // White
-                line[ppos++] = 255;
-                line[ppos++] = 255;
-                line[ppos++] = 255;
+                pixelColour = gdImageColorAllocate(im, 255, 255, 255);  
+                gdImageSetPixel(im, j, i, pixelColour);
             } else {
                 printerColour = lookupColour(rgb[ipos + j]);
-                line[ppos++] = printerColour[2];
-                line[ppos++] = printerColour[1];
-                line[ppos++] = printerColour[0];
+                pixelColour = gdImageColorAllocate(im, printerColour[0], printerColour[1], printerColour[2]);  
+                gdImageSetPixel(im, j, i, pixelColour);
             }
         }
-        fwrite(line, bytesPerLine, 1, file);
-    }
-
-    free(line);
-    fclose(file);
+    }    
+	
+	file=fopen(filename, "wb");
+	gdImagePng(im, file);
+	fflush(file);  fclose(file);
+	gdImageDestroy(im);
 
     return (1);
 }
@@ -554,12 +515,12 @@ int test_for_new_paper()
     if ((ypos > (pageSetHeight - 17 * vPixelWidth)) || (state == 0)) {
         xpos = marginleftp;
         ypos = 0;
-        sprintf(filenameX, "%spage%d.bmp", pathbmp, page);
+        sprintf(filenameX, "%spage%d.jpg", pathbmp, page);
         printf("write   = %s \n", filenameX);
         write_bmp(filenameX, pageSetWidth, pageSetHeight, printermemory);
         
         // Create pdf file
-        sprintf(filenameX, "convert  %spage%d.bmp  %spage%d.pdf ", pathbmp,
+        sprintf(filenameX, "convert  %spage%d.jpg  %spage%d.pdf ", pathbmp,
             page, pathpdf, page);
         printf("command = %s \n", filenameX);
         system(filenameX);
@@ -3553,7 +3514,7 @@ main_loop_for_printing:
    
     printf("\n\nI am at page %d\n", page);
 
-    sprintf(filenameX, "%spage%d.bmp", pathbmp, page);
+    sprintf(filenameX, "%spage%d.jpg", pathbmp, page);
     printf("write   = %s \n", filenameX);
     write_bmp(filenameX, pageSetWidth, pageSetHeight, printermemory);
     
@@ -3579,7 +3540,7 @@ main_loop_for_printing:
         }
     }     
 
-    sprintf(filenameX, "convert  %spage%d.bmp  %spage%d.pdf ", pathbmp, page,pathpdf, page);
+    sprintf(filenameX, "convert  %spage%d.jpg  %spage%d.pdf ", pathbmp, page,pathpdf, page);
     printf("command = %s \n", filenameX);
     system(filenameX);
 
