@@ -12,6 +12,7 @@
  *
  * v1.0 First Release - taken from the conversion software currently in development for the Retro-Printer module.
  * www.retroprinter.com
+ * Relies on libpng and ImageMagick libraries
  */
 
 // Configuration options - these are currently intended to be simple files with flags 
@@ -19,17 +20,11 @@
 #define LINEFEED_CONFIG     "/root/config/linefeed_ending"
 #define PATH_CONFIG         "/root/config/output_path"
 
-// Set page size for bitmap to A4 (8.27 x 11.69 inches).
-// DIN A4 has a width 210 mm and height of 297 mm .
-// On original 9 pin (ESC/P) printers, the needles have a distance of 72dpi 
-// 240dpi horizontal resolution and 216dpi vertical resolution
-// Was 240 x 8.27 = 1924    x   216 x 11.69 = 2525
-// However 24 pin (ESC/P2) printers support up to 720dpi x 720dpi
-// giving 720 x 8.27 = 5954   x   720 x 11.69 = 8417
+int pageSize;
 float printerdpih = 720;
 float printerdpiv = 720;
-int pageSetWidth = 5954;
-int pageSetHeight = 8417;
+int pageSetWidth;
+int pageSetHeight;
 unsigned char *printermemory, *seedrow;
 
 unsigned int page = 0;
@@ -53,7 +48,7 @@ char    pathcreator[1000];  //path to usb
 struct timespec tvx;
 int startzeit;              // start time for time measures to avoid infinite loops
 
-int WHITE = 128;                            // Bit 7 is set for a white pixel in printermemory
+int WHITE = 128;                        // Bit 7 is set for a white pixel in printermemory
 
 int t1=0,t2=0,t3=0,t4=0,t5=0;
 int ackposition            = 0;
@@ -95,16 +90,39 @@ SDL_Surface *display;
 FILE *inputFile;
 int initialize()
 {
-    printermemory = malloc (5955 * 8417);
+    // Set page size for input file
+    // Based it on support for 720dpi (24 pin printers)
+    pageSize = 0; 
+    
+    switch (pageSize) {
+    case 0:
+        // A4
+        pageSetWidth = 5954; // 720 * 8.27"
+        pageSetHeight = 8417; // 720 * 11.69"
+        break;
+    case 1:
+        // A4 Landscape
+        pageSetWidth = 8417; // 720 * 11.69"
+        pageSetHeight = 5954; // 720 * 8.27"
+        break;
+    }
+    
+    marginleftp = 0, marginrightp = pageSetHeight - 0;   // in pixels
+    margintopp = 0, marginbottomp = pageSetWidth - 0;    
+    
+    // Set aside enough memory to store the parsed image
+    printermemory = malloc ((pageSetWidth+1) * pageSetHeight);
     if (printermemory == NULL) {
-        fprintf(stderr, "Can't allocate memory for PNG file.\n");
+        fprintf(stderr, "Can't allocate memory for Printer Conversion.\n");
         exit (0);
     }
-    seedrow = malloc ((5955 * 4) / 8); // Allow 4 seed rows for delta row compression - each seed row is 1 bit per pixel
+    // For Delta Row compression - set aside room to store 4 seed rows (1 per supported colour)
+    seedrow = malloc ((pageSetWidth+1) * 4);
     if (seedrow == NULL) {
-        fprintf(stderr, "Can't allocate memory for PNG file.\n");
+        free(printermemory);
+        fprintf(stderr, "Can't allocate memory for Delta Row Printing.\n");
         exit (0);
-    }     
+    }      
     
     /* routine could be used here to open the input file or port for reading 
     *  example is for reading from an input file called ./Test1.prn
@@ -3761,6 +3779,7 @@ main_loop_for_printing:
     if (feof(inputFile)) {
         fclose(inputFile);
         free(printermemory);
+        free(seedrow);
         exit(0);
     }    
     
