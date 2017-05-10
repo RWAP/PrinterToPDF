@@ -30,7 +30,7 @@ float printerdpih = 720;
 float printerdpiv = 720;
 int pageSetWidth = 5954;
 int pageSetHeight = 8417;
-unsigned char *printermemory;
+unsigned char *printermemory, *seedrow;
 
 unsigned int page = 0;
 char filenameX[1000];
@@ -52,6 +52,8 @@ char    pathcreator[1000];  //path to usb
 
 struct timespec tvx;
 int startzeit;              // start time for time measures to avoid infinite loops
+
+int WHITE = 128;                            // Bit 7 is set for a white pixel in printermemory
 
 int t1=0,t2=0,t3=0,t4=0,t5=0;
 int ackposition            = 0;
@@ -93,11 +95,16 @@ SDL_Surface *display;
 FILE *inputFile;
 int initialize()
 {
-    printermemory = malloc (5955 * 8417); // Allow 3 bytes per pixel
+    printermemory = malloc (5955 * 8417);
     if (printermemory == NULL) {
         fprintf(stderr, "Can't allocate memory for PNG file.\n");
         exit (0);
-    }    
+    }
+    seedrow = malloc ((5955 * 4) / 8); // Allow 4 seed rows for delta row compression - each seed row is 1 bit per pixel
+    if (seedrow == NULL) {
+        fprintf(stderr, "Can't allocate memory for PNG file.\n");
+        exit (0);
+    }     
     
     /* routine could be used here to open the input file or port for reading 
     *  example is for reading from an input file called ./Test1.prn
@@ -144,8 +151,6 @@ int read_byte_from_printer(unsigned char *bytex)
         *bytex = databyte;
         return 1;
     }
-
-    
     return 0;
 }
 
@@ -270,7 +275,6 @@ int write_png(const char *filename, int width, int height, char *rgb)
     png_structp png_ptr = NULL;
     png_infop info_ptr = NULL;
     png_bytep row = NULL;
-    png_byte *row_pointers[10];
     FILE *file; 
     
     char *title = "ESC/P2 converted image";
@@ -339,7 +343,7 @@ int write_png(const char *filename, int width, int height, char *rgb)
         ipos = width * y;
         for (x=0 ; x<width ; x++) {
             ppos = x * 3;
-            if (rgb[ipos + x] ==128) {
+            if (rgb[ipos + x] == WHITE) {
                 row[ppos] = 255;
                 row[ppos + 1] = 255;
                 row[ppos + 2] = 255;
@@ -350,19 +354,8 @@ int write_png(const char *filename, int width, int height, char *rgb)
                 row[ppos + 2] = pixelColour[2];
             }
         }
-        row_pointers[rowCount] = row;
-        if (rowCount == 9) {
-            png_write_rows(png_ptr, row_pointers, rowCount+1);
-            rowCount = 0;
-        } else {
-            rowCount++;
-        }
+        png_write_row(png_ptr, row);
     }
-    if (rowCount) {
-        // Write last buffer
-        png_write_rows(png_ptr, row_pointers, rowCount+1);
-    }
-
     // End write
     png_write_end(png_ptr, NULL);    
     
@@ -382,7 +375,7 @@ void putpx(int x, int y)
     unsigned char existingPixel = printermemory[pos];
 
     // If existing pixel is white, then we need to reset it to 0 before OR'ing the chosen colour
-    if (existingPixel == 128) {
+    if (existingPixel == WHITE) {
         printermemory[pos] = 1 << printColour;
     } else {
         printermemory[pos] |= 1 << printColour;
@@ -492,7 +485,7 @@ void putpixel(SDL_Surface * surface, int x, int y, Uint32 pixel)
     }
 }
 
-void putpixelbig(int xpos, int ypos, float hwidth, float vdith)
+void putpixelbig(int xpos, int ypos, int hwidth, int vdith)
 {
     int a, b;
     for (a = 0; a < hwidth; a++) {
@@ -517,8 +510,8 @@ int needles = 24;                           // number of needles
 int letterQuality = 0;                      // LQ Mode?
 int proportionalSpacing = 0;                // Proportional Mode (not implemented)
 int rows = 0;
-double xpos = 0, ypos = 0;                  // position of print head
-double xpos2 = 0, ypos2 = 0;                // position of print head
+int xpos = 0, ypos = 0;                     // position of print head
+int xpos2 = 0, ypos2 = 0;                   // position of print head
 
 float hmi = (float) 720 * ((float) 36 / (float) 360);              // pitch in inches per character.  Default is 36/360 * 720 = 10 cpi
 float chrSpacing = 0;                      // Inter-character spacing
@@ -551,7 +544,7 @@ char fontx[2049000];
 void erasepage()
 {
     int i;  
-    for (i = 0; i < pageSetWidth * pageSetHeight; i++) printermemory[i] = 1 << 7;
+    for (i = 0; i < pageSetWidth * pageSetHeight; i++) printermemory[i] = WHITE;
 }
 
 void erasesdl()
@@ -605,19 +598,19 @@ int test_for_new_paper()
 
 int precedingDot(int x, int y) {
     int pos = (y * pageSetWidth) + (x-1);
-    if (printermemory[pos] == 128) return 0; // White
+    if (printermemory[pos] == WHITE) return 0;
     return 1;
 }
 
 void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth) {
-    int opr, xByte, j, bytePointer, colour, existingColour;
-    unsigned int xd, repeater, command, dataCount;
+    int opr, xByte, j, bytePointer, colour, existingColour, counterValue, repeatValue;
+    unsigned char xd, repeater, command, dataCount;
     signed int parameter;
-    unsigned char seedrow[5954 * 4];
+    int byteOffset, bitOffset;
     int moveSize = 1; // Set by MOVEXDOT or MOVEXBYTE
     if (compressMode == 3) {
-        // Delta Row Compression
-        for (bytePointer = 0; bytePointer < pageSetWidth * 4; bytePointer++) {
+        // Delta Row Compression - clear all seed rows
+        for (bytePointer = 0; bytePointer < (pageSetWidth * 4) / 8; bytePointer++) {
             seedrow[bytePointer]=0;
         }
     }
@@ -632,12 +625,16 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
         if (state == 0) goto raus_tiff_delta_print;
     }
     
-    // Get command into nibbles
+    // Get command into nibbles 
     command = (unsigned char) xd >> 4;
     parameter = (unsigned char) xd & 0xF;
+    
     switch (command) {
     case 2:
         // XFER 0010 xxxx - parameter number of raster image data 0...15
+        bytePointer = ((printColour * pageSetWidth) + xpos) / 8;
+        byteOffset = bytePointer;
+        bitOffset = 7 - (xpos & 8);
         for (opr = 0; opr < parameter; opr ++) {
             state = 0;
             while (state == 0) {
@@ -653,20 +650,41 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
                         state = read_byte_from_printer((char *) &xd);  // byte to be printed
                         if (state == 0) goto raus_tiff_delta_print;
                     }
-                    for (xByte = 0; xByte < 8; xByte++) {
-                        bytePointer = printColour * pageSetWidth + xpos;
-                        if (xd & 128) {
-                            putpixelbig(xpos, ypos, hPixelWidth, vPixelWidth);
-                            if (compressMode == 3) {
-                                // for ESC.3 Delta Row also copy bytes to seedrow for current colour
-                                if (xpos < pageSetWidth) seedrow[bytePointer] = 1;
-                            }
-                        } else if (compressMode == 3) {
+                    if (xd == 0) {
+                        if (compressMode == 3) {
                             // for ESC.3 Delta Row also copy bytes to seedrow for current colour
-                            if (xpos < pageSetWidth) seedrow[bytePointer] = 0;
+                            for (xByte = 0; xByte < 8; xByte++) {
+                                if (byteOffset < pageSetWidth) seedrow[byteOffset] &= ~(1 << bitOffset);
+                            }
+                            bitOffset--;
+                            if (bitOffset < 0) {
+                                byteOffset++;
+                                bitOffset = 8;
+                            }
                         }
-                        xd = xd << 1;
-                        xpos = xpos + hPixelWidth;
+                        xpos = xpos + (hPixelWidth * 8);
+                    } else {
+                        for (xByte = 0; xByte < 8; xByte++) {
+                            if (xd & 128) {
+                                putpixelbig(xpos, ypos, hPixelWidth, vPixelWidth);
+                                if (compressMode == 3) {
+                                    // for ESC.3 Delta Row also copy bytes to seedrow for current colour
+                                    if (byteOffset < pageSetWidth) seedrow[byteOffset] |= (1 << bitOffset);
+                                }
+                            } else if (compressMode == 3) {
+                                // for ESC.3 Delta Row also copy bytes to seedrow for current colour
+                                if (byteOffset < pageSetWidth) seedrow[byteOffset] &= ~(1 << bitOffset);
+                            }
+                            xd = xd << 1;
+                            if (compressMode == 3) {
+                                bitOffset--;
+                                if (bitOffset < 0) {
+                                    byteOffset++;
+                                    bitOffset = 8;
+                                }
+                            }
+                            xpos = xpos + hPixelWidth;
+                        }
                     }
                     // SDL_UpdateRect(display, 0, 0, 0, 0);
                     opr++;
@@ -680,20 +698,41 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
                     if (state == 0) goto raus_tiff_delta_print;
                 }
                 for (j = 0; j < repeater; j++) {
-                    for (xByte = 0; xByte < 8; xByte++) {
-                        bytePointer = printColour * pageSetWidth + xpos;
-                        if (xd & 128) {
-                            putpixelbig(xpos, ypos, hPixelWidth, vPixelWidth);
-                            if (compressMode == 3) {
-                                // for ESC.3 Delta Row also copy bytes to seedrow for current colour
-                                if (xpos < pageSetWidth) seedrow[bytePointer] = 1;
-                            }
-                        } else if (compressMode == 3) {
+                    if (xd == 0) {
+                        if (compressMode == 3) {
                             // for ESC.3 Delta Row also copy bytes to seedrow for current colour
-                            if (xpos < pageSetWidth) seedrow[bytePointer] = 0;
+                            for (xByte = 0; xByte < 8; xByte++) {
+                                if (byteOffset < pageSetWidth) seedrow[byteOffset] &= ~(1 << bitOffset);
+                            }
+                            bitOffset--;
+                            if (bitOffset < 0) {
+                                byteOffset++;
+                                bitOffset = 8;
+                            }
                         }
-                        xd = xd << 1;
-                        xpos = xpos + hPixelWidth;
+                        xpos = xpos + (hPixelWidth * 8);
+                    } else {                    
+                        for (xByte = 0; xByte < 8; xByte++) {
+                            if (xd & 128) {
+                                putpixelbig(xpos, ypos, hPixelWidth, vPixelWidth);
+                                if (compressMode == 3) {
+                                    // for ESC.3 Delta Row also copy bytes to seedrow for current colour
+                                    if (byteOffset < pageSetWidth) seedrow[byteOffset] |= (1 << bitOffset);
+                                }
+                            } else if (compressMode == 3) {
+                                // for ESC.3 Delta Row also copy bytes to seedrow for current colour
+                                if (byteOffset < pageSetWidth) seedrow[byteOffset] &= ~(1 << bitOffset);
+                            }
+                            xd = xd << 1;
+                            if (compressMode == 3) {
+                                bitOffset--;
+                                if (bitOffset < 0) {
+                                    byteOffset++;
+                                    bitOffset = 8;
+                                }
+                            }
+                            xpos = xpos + hPixelWidth;
+                        }
                     }
                     // SDL_UpdateRect(display, 0, 0, 0, 0);
                 }
@@ -702,13 +741,17 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
         }    
         break;
     case 3:
-        // XFER 0011 xxxx - parameter number of lookups to raster printer image data 1...2
+        // XFER 0011 xxxx - parameter number of lookups to raster printer image data 1...2       
+        bytePointer = ((printColour * pageSetWidth) + xpos) / 8;
+        byteOffset = bytePointer;
+        bitOffset = 7 - (xpos & 8);
         if (parameter == 1) {
             state = 0;
             while (state == 0) {
                 state = read_byte_from_printer((char *) &dataCount);
                 if (state == 0) goto raus_tiff_delta_print;
             }
+            counterValue = (int) dataCount;           
         } else {
             state = 0;
             while (state == 0) {
@@ -720,64 +763,107 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
                 state = read_byte_from_printer((char *) &nH);
                 if (state == 0) goto raus_tiff_delta_print;
             }
-            dataCount = nL + (256 * nH);
+            counterValue = nL + (256 * nH);
         }
-        for (opr = 0; opr < dataCount; opr ++) {
+        for (opr = 0; opr < counterValue; opr ++) {
             state = 0;
             while (state == 0) {
                 state = read_byte_from_printer((char *) &repeater);  // number of times to repeat next byte
                 if (state == 0) goto raus_tiff_delta_print;
             }
-            if (repeater <= 127) {
-                repeater++;
+            repeatValue = (int) repeater;           
+            if (repeatValue <= 127) {
+                repeatValue++;
                 // string of data byes to be printed
-                for (j = 0; j < repeater; j++) {
+                for (j = 0; j < repeatValue; j++) {
                     state = 0;
                     while (state == 0) {
                         state = read_byte_from_printer((char *) &xd);  // byte to be printed
                         if (state == 0) goto raus_tiff_delta_print;
                     }
-                    for (xByte = 0; xByte < 8; xByte++) {
-                        bytePointer = printColour * pageSetWidth + xpos;
-                        if (xd & 128) {
-                            putpixelbig(xpos, ypos, hPixelWidth, vPixelWidth);
-                            if (compressMode == 3) {
-                                // for ESC.3 Delta Row also copy bytes to seedrow for current colour
-                                if (xpos < pageSetWidth) seedrow[bytePointer] = 1;
-                            }
-                        } else if (compressMode == 3) {
+                    if (xd == 0) {
+                        if (compressMode == 3) {
                             // for ESC.3 Delta Row also copy bytes to seedrow for current colour
-                            if (xpos < pageSetWidth) seedrow[bytePointer] = 0;
+                            for (xByte = 0; xByte < 8; xByte++) {
+                                if (byteOffset < pageSetWidth) seedrow[byteOffset] &= ~(1 << bitOffset);
+                            }
+                            bitOffset--;
+                            if (bitOffset < 0) {
+                                byteOffset++;
+                                bitOffset = 8;
+                            }
                         }
-                        xd = xd << 1;
-                        xpos = xpos + hPixelWidth;
+                        xpos = xpos + (hPixelWidth * 8);
+                    } else {                    
+                        for (xByte = 0; xByte < 8; xByte++) {
+                            if (xd & 128) {
+                                putpixelbig(xpos, ypos, hPixelWidth, vPixelWidth);
+                                if (compressMode == 3) {
+                                    // for ESC.3 Delta Row also copy bytes to seedrow for current colour
+                                    if (byteOffset < pageSetWidth) seedrow[byteOffset] |= (1 << bitOffset);
+                                }
+                            } else if (compressMode == 3) {
+                                // for ESC.3 Delta Row also copy bytes to seedrow for current colour
+                                if (byteOffset < pageSetWidth) seedrow[byteOffset] &= ~(1 << bitOffset);
+                            }
+                            xd = xd << 1;
+                            if (compressMode == 3) {
+                                bitOffset--;
+                                if (bitOffset < 0) {
+                                    byteOffset++;
+                                    bitOffset = 8;
+                                }
+                            }
+                            xpos = xpos + hPixelWidth;
+                        }
                     }
                     // SDL_UpdateRect(display, 0, 0, 0, 0);
                     opr++;
                 }
             } else {
                 // Repeat following byte twos complement (repeater)
-                repeater = (256 - repeater) + 1;
+                repeatValue = (256 - repeater) + 1;
                 state = 0;              
                 while (state == 0) {
                     state = read_byte_from_printer((char *) &xd);  // byte to be printed
                     if (state == 0) goto raus_tiff_delta_print;
                 }
-                for (j = 0; j < repeater; j++) {
-                    for (xByte = 0; xByte < 8; xByte++) {
-                        bytePointer = printColour * pageSetWidth + xpos;
-                        if (xd & 128) {
-                            putpixelbig(xpos, ypos, hPixelWidth, vPixelWidth);
-                            if (compressMode == 3) {
-                                // for ESC.3 Delta Row also copy bytes to seedrow for current colour
-                                if (xpos < pageSetWidth) seedrow[bytePointer] = 1;
-                            }
-                        } else if (compressMode == 3) {
+                for (j = 0; j < repeatValue; j++) {
+                    if (xd == 0) {
+                        if (compressMode == 3) {
                             // for ESC.3 Delta Row also copy bytes to seedrow for current colour
-                            if (xpos < pageSetWidth) seedrow[bytePointer] = 0;
+                            for (xByte = 0; xByte < 8; xByte++) {
+                                if (byteOffset < pageSetWidth) seedrow[byteOffset] &= ~(1 << bitOffset);
+                            }
+                            bitOffset--;
+                            if (bitOffset < 0) {
+                                byteOffset++;
+                                bitOffset = 8;
+                            }
                         }
-                        xd = xd << 1;
-                        xpos = xpos + hPixelWidth;
+                        xpos = xpos + (hPixelWidth * 8);
+                    } else {                    
+                        for (xByte = 0; xByte < 8; xByte++) {
+                            if (xd & 128) {
+                                putpixelbig(xpos, ypos, hPixelWidth, vPixelWidth);
+                                if (compressMode == 3) {
+                                    // for ESC.3 Delta Row also copy bytes to seedrow for current colour
+                                    if (xpos < pageSetWidth) seedrow[byteOffset] |= (1 << bitOffset);
+                                }
+                            } else if (compressMode == 3) {
+                                // for ESC.3 Delta Row also copy bytes to seedrow for current colour
+                                if (xpos < pageSetWidth) seedrow[byteOffset] &= ~(1 << bitOffset);
+                            }
+                            xd = xd << 1;
+                            if (compressMode == 3) {
+                                bitOffset--;
+                                if (bitOffset < 0) {
+                                    byteOffset++;
+                                    bitOffset = 8;
+                                }
+                            }
+                            xpos = xpos + hPixelWidth;
+                        }
                     }
                     // SDL_UpdateRect(display, 0, 0, 0, 0);
                 }
@@ -786,7 +872,7 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
         }    
         break; 
     case 4:
-        // MOVX 0100 xxxx - space to move -8 to 7
+        // MOVX 0100 xxxx - space to move -8 to 7        
         if (parameter > 7) parameter = 7 - parameter;
         thisDefaultUnit = defaultUnit;
         if (defaultUnit == 0) thisDefaultUnit = printerdpiv / (float) 360; // Default for command is 1/360 inch units        
@@ -821,7 +907,7 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
         xpos2 = xpos + parameter * moveSize * thisDefaultUnit;
         if (xpos2 >= marginleftp && xpos2 <= marginrightp) xpos = xpos2;
         break;
-    case 6:
+    case 6:  
         // MOVY 0110 xxxx - space to move down 0 to 15 units
         // See ESC ( U command for unit
         thisDefaultUnit = defaultUnit;
@@ -831,18 +917,29 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
         if (compressMode == 3) {
             // Copy all seed data across to new row
             colour = printColour;
-            for (printColour = 0; printColour < 5; printColour++) {
+            for (printColour = 0; printColour < 4; printColour++) {
                 xpos = 0;
-                for (bytePointer = printColour * pageSetWidth; bytePointer < (printColour+1) * pageSetWidth; bytePointer++) {
-                    if (seedrow[bytePointer] == 1) putpixelbig(xpos, ypos, hPixelWidth, vPixelWidth);
-                    xpos = xpos + hPixelWidth;
+                bytePointer = (printColour * pageSetWidth) / 8;
+                for (byteOffset = bytePointer; byteOffset < bytePointer + (pageSetWidth / 8); byteOffset++) {
+                    xd = seedrow[byteOffset]; 
+                    if (xd > 0) {
+                        for (xByte = 0; xByte < 8; xByte++) {
+                            if (xd & 128) {
+                                putpixelbig(xpos, ypos, hPixelWidth, vPixelWidth);
+                            }
+                            xd = xd << 1;
+                            xpos = xpos + hPixelWidth;
+                        }
+                    } else {
+                        xpos = xpos + (hPixelWidth * 8);
+                    }
                 }
             }
             printColour = colour;
         }
         xpos = 0;
         break;
-    case 7:
+    case 7:  
         // MOVY 0111 xxxx - space to move down X dots
         if (parameter == 1) {
             state = 0;
@@ -870,11 +967,22 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
         if (compressMode == 3) {
             // Copy all seed data across to new row
             colour = printColour;
-            for (printColour = 0; printColour < 5; printColour++) {
+            for (printColour = 0; printColour < 4; printColour++) {
                 xpos = 0;
-                for (bytePointer = printColour * pageSetWidth; bytePointer < (printColour+1) * pageSetWidth; bytePointer++) {
-                    if (seedrow[bytePointer] == 1) putpixelbig(xpos, ypos, hPixelWidth, vPixelWidth);
-                    xpos = xpos + hPixelWidth;
+                bytePointer = (printColour * pageSetWidth) / 8;
+                for (byteOffset = bytePointer; byteOffset < bytePointer + (pageSetWidth / 8); byteOffset++) {
+                    xd = seedrow[byteOffset]; 
+                    if (xd > 0) {
+                        for (xByte = 0; xByte < 8; xByte++) {
+                            if (xd & 128) {
+                                putpixelbig(xpos, ypos, hPixelWidth, vPixelWidth);
+                            }
+                            xd = xd << 1;
+                            xpos = xpos + hPixelWidth;
+                        }
+                    } else {
+                        xpos = xpos + (hPixelWidth * 8);
+                    }
                 }
             }
             printColour = colour;
@@ -885,35 +993,48 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
         // COLR 1000 xxxx 
         printColour = parameter;
         break;
-    case 14:
+    case 14:   
         switch (parameter) {
         case 1:
             // CLR 1110 0001
             if (compressMode == 3) {
                 // Clear seedrow for current colour
-                for (bytePointer = printColour * pageSetWidth; bytePointer < (printColour+1) * pageSetWidth; bytePointer++) {
-                    seedrow[bytePointer] = 0;
+                bytePointer = (printColour * pageSetWidth) / 8;
+                for (byteOffset = bytePointer; byteOffset < bytePointer + (pageSetWidth / 8); byteOffset++) {
+                    seedrow[byteOffset] = 0;
                 }
                 // Reset the current row on the paper to white and then add the other colours
                 bytePointer = ypos * pageSetWidth;
-                for (j = 0; j < pageSetWidth; j++) printermemory[bytePointer + j] = 1 << 7;
-                if (sdlon == 1) {
-                    // Clear display
-                    for (xpos = 0; xpos < pageSetWidth; xpos++) {
-                        colour = printColour;
-                        printColour = 7; // White
+                // Clear display
+                colour = printColour;
+                printColour = 7; // White
+                xpos = 0;
+                for (byteOffset = bytePointer; byteOffset < bytePointer + pageSetWidth; byteOffset++) {
+                    printermemory[byteOffset] = WHITE;
+                    if (sdlon == 1) {
                         putpixelbig(xpos, ypos, hPixelWidth, vPixelWidth);
-                        printColour = colour;
+                        xpos = xpos + hPixelWidth;
                     }
                 }
+                printColour = colour;
+                
                 // Copy all other seed data across to row on page
                 colour = printColour;
-                for (printColour = 0; printColour < 5; printColour++) {
-                    if (printColour != colour) {
-                        xpos = 0;
-                        for (bytePointer = printColour * pageSetWidth; bytePointer < (printColour+1) * pageSetWidth; bytePointer++) {
-                            if (seedrow[bytePointer] == 1) putpixelbig(xpos, ypos, hPixelWidth, vPixelWidth);
-                            xpos = xpos + hPixelWidth;
+                for (printColour = 0; printColour < 4; printColour++) {
+                    xpos = 0;
+                    bytePointer = (printColour * pageSetWidth) / 8;
+                    for (byteOffset = bytePointer; byteOffset < bytePointer + (pageSetWidth / 8); byteOffset++) {
+                        xd = seedrow[byteOffset];
+                        if (xd > 0) {
+                            for (xByte = 0; xByte < 8; xByte++) {
+                                if (xd & 128) {
+                                    putpixelbig(xpos, ypos, hPixelWidth, vPixelWidth);
+                                }
+                                xd = xd << 1;
+                                xpos = xpos + hPixelWidth;
+                            }
+                        } else {
+                            xpos = xpos + (hPixelWidth * 8);
                         }
                     }
                 }
@@ -957,7 +1078,7 @@ _8pin_line_bitmap_print(int dotColumns, float hPixelWidth, float vPixelWidth,
 {
     // bitmap graphics printing - prints bytes vertically
     int opr, fByte;
-    unsigned int xd;
+    unsigned char xd;
     test_for_new_paper();
     for (opr = 0; opr < dotColumns; opr++) {
         // timeout
@@ -990,7 +1111,7 @@ _9pin_line_bitmap_print(int dotColumns, float hPixelWidth, float vPixelWidth,
 {
     // bitmap graphics printing - prints bytes vertically - special case for ESC ^ command
     int opr, fByte, xByte;
-    unsigned int xd;
+    unsigned char xd;
     test_for_new_paper();
     for (opr = 0; opr < dotColumns; opr++) {
         state = 0;
@@ -998,15 +1119,17 @@ _9pin_line_bitmap_print(int dotColumns, float hPixelWidth, float vPixelWidth,
             state = read_byte_from_printer((char *) &xd);  // byte1
             if (state == 0) goto raus_9p;
         }
-        for (xByte = 0; xByte < 8; xByte++) {
-            if (xd & 128) {
-                if ((adjacentDot == 0) && (precedingDot(xpos, ypos + xByte * vPixelWidth) == 1)) {
-                    // Miss out second of two consecutive horizontal dots
-                } else {
-                    putpixelbig(xpos, ypos + xByte * vPixelWidth, hPixelWidth, vPixelWidth);
-                }
-            }            
-            xd = xd << 1;
+        if (xd) {
+            for (xByte = 0; xByte < 8; xByte++) {
+                if (xd & 128) {
+                    if ((adjacentDot == 0) && (precedingDot(xpos, ypos + xByte * vPixelWidth) == 1)) {
+                        // Miss out second of two consecutive horizontal dots
+                    } else {
+                        putpixelbig(xpos, ypos + xByte * vPixelWidth, hPixelWidth, vPixelWidth);
+                    }
+                }            
+                xd = xd << 1;
+            }
         }
         // Read pin 9
         state = 0;
@@ -1034,7 +1157,7 @@ _24pin_line_bitmap_print(int dotColumns, float hPixelWidth, float vPixelWidth,
 {
     // bitmap graphics printing - prints bytes vertically
     int opr, fByte, xByte;
-    unsigned int xd;
+    unsigned char xd;
     test_for_new_paper();
     for (opr = 0; opr < dotColumns; opr++) {
         // print 3 bytes (3 x 8 dots) per column
@@ -1046,15 +1169,17 @@ _24pin_line_bitmap_print(int dotColumns, float hPixelWidth, float vPixelWidth,
                 state = read_byte_from_printer((char *) &xd);  // byte1
                 if (state == 0) goto raus_24p;
             }
-            for (xByte = 0; xByte < 8; xByte++) {
-                if (xd & 128) {
-                    if ((adjacentDot == 0) && (precedingDot(xpos, ypos2 + xByte * vPixelWidth) == 1)) {
-                        // Miss out second of two consecutive horizontal dots
-                    } else {
-                        putpixelbig(xpos, ypos2 + xByte * vPixelWidth, hPixelWidth, vPixelWidth);
-                    }
-                }                 
-                xd = xd << 1;
+            if (xd) {
+                for (xByte = 0; xByte < 8; xByte++) {
+                    if (xd & 128) {
+                        if ((adjacentDot == 0) && (precedingDot(xpos, ypos2 + xByte * vPixelWidth) == 1)) {
+                            // Miss out second of two consecutive horizontal dots
+                        } else {
+                            putpixelbig(xpos, ypos2 + xByte * vPixelWidth, hPixelWidth, vPixelWidth);
+                        }
+                    }                 
+                    xd = xd << 1;
+                }
             }
         }
         xpos = xpos + hPixelWidth;
@@ -1070,7 +1195,7 @@ _48pin_line_bitmap_print(int dotColumns, float hPixelWidth, float vPixelWidth,
 {
     // bitmap graphics printing - prints bytes vertically
     int opr, fByte, xByte;
-    unsigned int xd;
+    unsigned char xd;
     test_for_new_paper();
     for (opr = 0; opr < dotColumns; opr++) {
         // print 6 bytes (6 x 8 dots) per column
@@ -1082,15 +1207,17 @@ _48pin_line_bitmap_print(int dotColumns, float hPixelWidth, float vPixelWidth,
                 state = read_byte_from_printer((char *) &xd);  // byte1
                 if (state == 0) goto raus_48p;
             }
-            for (xByte = 0; xByte < 8; xByte++) {
-                if (xd & 128) {
-                    if ((adjacentDot == 0) && (precedingDot(xpos, ypos2 + xByte * vPixelWidth) == 1)) {
-                        // Miss out second of two consecutive horizontal dots
-                    } else {
-                        putpixelbig(xpos, ypos2 + xByte * vPixelWidth, hPixelWidth, vPixelWidth);
+            if (xd) {
+                for (xByte = 0; xByte < 8; xByte++) {
+                    if (xd & 128) {
+                        if ((adjacentDot == 0) && (precedingDot(xpos, ypos2 + xByte * vPixelWidth) == 1)) {
+                            // Miss out second of two consecutive horizontal dots
+                        } else {
+                            putpixelbig(xpos, ypos2 + xByte * vPixelWidth, hPixelWidth, vPixelWidth);
+                        }
                     }
+                    xd = xd << 1;
                 }
-                xd = xd << 1;
             }
         }
         xpos = xpos + hPixelWidth;
@@ -1106,7 +1233,7 @@ _line_raster_print(int bandHeight, int dotColumns, float hPixelWidth, float vPix
 {
     // Data is sent in horizontal bands of up to dotColumns high
     int opr, xByte, j, band;
-    unsigned int xd, repeater;
+    unsigned char xd, repeater;
     test_for_new_paper();
     for (band = 0; band < bandHeight; band++) {
         if (rleEncoded) {
@@ -1125,12 +1252,16 @@ _line_raster_print(int bandHeight, int dotColumns, float hPixelWidth, float vPix
                             state = read_byte_from_printer((char *) &xd);  // byte to be printed
                             if (state == 0) goto raus_rasterp;
                         }
-                        for (xByte = 0; xByte < 8; xByte++) {
-                            if (xd & 128) putpixelbig(xpos, ypos2, hPixelWidth, vPixelWidth);
-                            xd = xd << 1;
-                            xpos = xpos + hPixelWidth;
+                        if (xd) {
+                            for (xByte = 0; xByte < 8; xByte++) {
+                                if (xd & 128) putpixelbig(xpos, ypos2, hPixelWidth, vPixelWidth);
+                                xd = xd << 1;
+                                xpos = xpos + hPixelWidth;
+                            }
+                            opr++;
+                        } else {
+                            xpos = xpos + (hPixelWidth * 8);
                         }
-                        opr++;
                         // SDL_UpdateRect(display, 0, 0, 0, 0);
                     }
                 } else {
@@ -1142,10 +1273,14 @@ _line_raster_print(int bandHeight, int dotColumns, float hPixelWidth, float vPix
                         if (state == 0) goto raus_rasterp;
                     }
                     for (j = 0; j < repeater; j++) {
-                        for (xByte = 0; xByte < 8; xByte++) {
-                            if (xd & 128) putpixelbig(xpos, ypos2, hPixelWidth, vPixelWidth);
-                            xd = xd << 1;
-                            xpos = xpos + hPixelWidth;
+                        if (xd) {
+                            for (xByte = 0; xByte < 8; xByte++) {
+                                if (xd & 128) putpixelbig(xpos, ypos2, hPixelWidth, vPixelWidth);
+                                xd = xd << 1;
+                                xpos = xpos + hPixelWidth;
+                            }
+                        } else {
+                            xpos = xpos + (hPixelWidth * 8);
                         }
                         // SDL_UpdateRect(display, 0, 0, 0, 0);
                     }
@@ -1159,10 +1294,14 @@ _line_raster_print(int bandHeight, int dotColumns, float hPixelWidth, float vPix
                     state = read_byte_from_printer((char *) &xd);  // byte1
                     if (state == 0) goto raus_rasterp;
                 }
-                for (xByte = 0; xByte < 8; xByte++) {
-                    if (xd & 128) putpixelbig(xpos, ypos2, hPixelWidth, vPixelWidth);
-                    xd = xd << 1;
-                    xpos = xpos + hPixelWidth;
+                if (xd) {
+                    for (xByte = 0; xByte < 8; xByte++) {
+                        if (xd & 128) putpixelbig(xpos, ypos2, hPixelWidth, vPixelWidth);
+                        xd = xd << 1;
+                        xpos = xpos + hPixelWidth;
+                    }
+                } else {
+                    xpos = xpos + (hPixelWidth * 8);
                 }
                 // SDL_UpdateRect(display, 0, 0, 0, 0);
             }
@@ -1780,7 +1919,7 @@ nowrite:
 // args[2] is the divisor to reduce SDL window size.  3 is a good value for starting
 int main(int argc, char *args[])
 {
-    unsigned int xd = 0;
+    unsigned char xd = 0;
     unsigned int pixelz = 0;
     int xposold;
     int i, j, countcharz = 0;
@@ -1988,7 +2127,7 @@ main_loop_for_printing:
     // ASCII Branch
     while (state != 0) {
         // read next char
-        state = read_byte_from_printer((char *) &xd);
+        state = read_byte_from_printer((char *) &xd);        
         if (state == 0) {
             if (timeout > 0)
             sleep(timeout - 1);
