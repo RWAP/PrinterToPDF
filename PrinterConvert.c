@@ -351,8 +351,8 @@ int write_png(const char *filename, int width, int height, char *rgb)
             }
         }
         row_pointers[rowCount] = row;
-        if (rowCount == 10) {
-            png_write_rows(png_ptr, row_pointers, rowCount);
+        if (rowCount == 9) {
+            png_write_rows(png_ptr, row_pointers, rowCount+1);
             rowCount = 0;
         } else {
             rowCount++;
@@ -360,7 +360,7 @@ int write_png(const char *filename, int width, int height, char *rgb)
     }
     if (rowCount) {
         // Write last buffer
-        png_write_rows(png_ptr, row_pointers, rowCount);
+        png_write_rows(png_ptr, row_pointers, rowCount+1);
     }
 
     // End write
