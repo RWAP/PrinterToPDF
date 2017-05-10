@@ -165,7 +165,7 @@ int cfileexists(const char* filename)
 }
 
 int isNthBitSet (unsigned char c, int n) {
-  return (c >> n);
+    return (c >> n) & 1;
 }
 
 int * lookupColour(unsigned char colourValue)
