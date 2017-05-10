@@ -350,10 +350,12 @@ int write_png(const char *filename, int width, int height, char *rgb)
                 row[ppos + 2] = pixelColour[2];
             }
         }
-        row_pointers[rowCount++] = row;
+        row_pointers[rowCount] = row;
         if (rowCount == 10) {
             png_write_rows(png_ptr, row_pointers, rowCount);
             rowCount = 0;
+        } else {
+            rowCount++;
         }
     }
     if (rowCount) {
