@@ -323,13 +323,29 @@ int * lookupColour(unsigned char colourValue)
 
 int write_png(const char *filename, int width, int height, char *rgb)
 {
-    int ipos;
+    int ipos, data_found = 0, end_loop = 0;
     int *pixelColour;
     int code = 1;
     png_structp png_ptr = NULL;
     png_infop info_ptr = NULL;
     png_bytep row = NULL;
-    FILE *file; 
+    FILE *file;
+    
+    // Check if a blank page - if so ignore it!
+    while (data_found == 0 && end_loop == 0) {
+        // Write image data - 8 bit RGB
+        int x, y, ppos, rowCount = 0;
+        for (y=0 ; y<height ; y++) {
+            ipos = width * y;
+            for (x=0 ; x<width ; x++) {
+                if (rgb[ipos+x] != WHITE) data_found = 1;
+            }
+        }
+        end_loop = 1;
+    }
+    if (!data_found) return 0; // Nothing to print
+    
+    printf("write   = %s \n", filenameX);
     
     char *title = "ESC/P2 converted image";
 
@@ -605,31 +621,28 @@ int test_for_new_paper()
         xpos = marginleftp;
         ypos = margintopp;
         sprintf(filenameX, "%spage%d.png", pathpng, page);
-        printf("write   = %s \n", filenameX);
-        write_png(filenameX, pageSetWidth, pageSetHeight, printermemory);
-        
-        // Create pdf file
-        sprintf(filenameX, "convert  %spage%d.png  %spage%d.pdf ", pathpng,
-            page, pathpdf, page);
-        printf("command = %s \n", filenameX);
-        system(filenameX);
-
+        if (write_png(filenameX, pageSetWidth, pageSetHeight, printermemory) > 0) {
+            // Create pdf file
+            sprintf(filenameX, "convert  %spage%d.png  %spage%d.pdf ", pathpng,
+                page, pathpdf, page);
+            printf("command = %s \n", filenameX);
+            system(filenameX);
+            erasesdl();
+            erasepage();
+            page++;
+            if (page > 199) {
+                page = dirX(pathraw);
+                reduce_pages(page, pathraw);
+                page = dirX(pathpng);
+                reduce_pages(page, pathpng);
+                page = dirX(pathpdf);
+                reduce_pages(page, pathpdf);
+                page = dirX(pathpdf) + 1;
+            }
+        }
         if (fp != NULL) {
             fclose(fp);
             fp = NULL;
-        }
-        erasesdl();
-        erasepage();
-
-        page++;
-        if (page > 199) {
-            page = dirX(pathraw);
-            reduce_pages(page, pathraw);
-            page = dirX(pathpng);
-            reduce_pages(page, pathpng);
-            page = dirX(pathpdf);
-            reduce_pages(page, pathpdf);
-            page = dirX(pathpdf) + 1;
         }
     }
     state = 1;
@@ -665,20 +678,20 @@ void _print_seedRows(){
         seedrowStart = (seedrowColour * pageSetWidth) /8;
         seedrowEnd = seedrowStart + (pageSetWidth / 8);
         bytePointer = seedrowStart + (xpos / 8);
-        bitOffset = 8 - (xpos & 8);                
+        bitOffset = 7 - (xpos & 8);                
         for (byteOffset = bytePointer; byteOffset < seedrowEnd; byteOffset++) {
             xd = seedrow[byteOffset]; 
             if (xd > 0) {
-                for (xByte = bitOffset; xByte < 9; xByte++) {
+                for (xByte = bitOffset; xByte >= 0; xByte--) {
                     if (isNthBitSet(xd,xByte)) {
                         putpixelbig(xpos, ypos, hPixelWidth, vPixelWidth);
                     }
                     xpos = xpos + hPixelWidth;
                 }
             } else {
-                xpos = xpos + (hPixelWidth * (8-bitOffset));
+                xpos = xpos + (hPixelWidth * (bitOffset + 1));
             }
-            bitOffset=0;
+            bitOffset=7;
         }
         xpos = marginleftp;
     }
@@ -694,12 +707,12 @@ void _print_incomingDataByte(int compressMode, unsigned char xd, int seedrowStar
             // for ESC.3 Delta Row clear bits in seedrow for current colour
             for (xByte = 0; xByte < 8; xByte++) {
                 if (byteOffset < seedrowEnd) seedrow[byteOffset] &= ~(1 << bitOffset);
-            }
-            if (bitOffset == 0) {
-                byteOffset++;
-                bitOffset = 7;
-            } else {
-                bitOffset--;
+                if (bitOffset == 0) {
+                    byteOffset++;
+                    bitOffset = 7;
+                } else {
+                    bitOffset--;
+                }
             }
         }
         xpos = xpos + (hPixelWidth * 8);
@@ -862,7 +875,7 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
         if (parameter > 7) parameter = 7 - parameter;
         thisDefaultUnit = defaultUnit;
         if (defaultUnit == 0) thisDefaultUnit = printerdpiv / (float) 360; // Default for command is 1/360 inch units        
-        xpos2 = xpos + (parameter * moveSize * thisDefaultUnit);
+        xpos2 = xpos + (parameter * moveSize * (int) thisDefaultUnit);
         if (xpos2 >= marginleftp && xpos2 <= marginrightp) xpos = xpos2;
         break;
     case 5:
@@ -889,8 +902,8 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
             if (parameter > 32767) parameter = 32767 - parameter;
         }
         thisDefaultUnit = defaultUnit;
-        if (defaultUnit == 0) thisDefaultUnit = printerdpiv / (float) 360; // Default for command is 1/360 inch units        
-        xpos2 = xpos + (parameter * moveSize * thisDefaultUnit);
+        if (defaultUnit == 0) thisDefaultUnit = printerdpiv / (float) 360; // Default for command is 1/360 inch units
+        xpos2 = xpos + (parameter * moveSize * (int) thisDefaultUnit);
         if (xpos2 >= marginleftp && xpos2 <= marginrightp) xpos = xpos2;
         break;
     case 6:  
@@ -898,7 +911,7 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
         // See ESC ( U command for unit
         thisDefaultUnit = defaultUnit;
         if (defaultUnit == 0) thisDefaultUnit = printerdpiv / (float) 360; // Default for command is 1/360 inch units
-        ypos = ypos + (parameter * thisDefaultUnit);
+        ypos = ypos + (parameter * (int) thisDefaultUnit);
         test_for_new_paper();
         if (compressMode == 3) _print_seedRows();
         xpos = marginleftp;
@@ -926,7 +939,7 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
         }
         thisDefaultUnit = defaultUnit;
         if (defaultUnit == 0) thisDefaultUnit = printerdpiv / (float) 360; // Default for command is 1/360 inch units
-        ypos = ypos + (parameter * thisDefaultUnit);
+        ypos = ypos + (parameter * (int) thisDefaultUnit);
         test_for_new_paper();
         if (compressMode == 3) _print_seedRows();
         xpos = marginleftp;
@@ -934,6 +947,7 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
     case 8:
         // COLR 1000 xxxx 
         printColour = parameter;
+        xpos = marginleftp;
         break;
     case 14:   
         switch (parameter) {
@@ -2196,7 +2210,7 @@ main_loop_for_printing:
                         thisDefaultUnit = defaultUnit;
                         if (defaultUnit == 0) thisDefaultUnit = printerdpiv / (float) 360; // Default for command is 1/360 inch units
                         /* TO DO
-                        int pageLength = ((mH * 256) + mL) * thisDefaultUnit;
+                        int pageLength = ((mH * 256) + mL) * (int) thisDefaultUnit;
                         if (pageLength > pageSetHeight) {
                             // Free more memory and reset the pagesetheight and default margins
                         }
@@ -2220,8 +2234,8 @@ main_loop_for_printing:
                         state = read_byte_from_printer((char *) &bH);
                         thisDefaultUnit = defaultUnit;
                         if (defaultUnit == 0) thisDefaultUnit = printerdpiv / (float) 360; // Default for command is 1/360 inch units
-                        margintopp = ((tH * 256) + tL) * thisDefaultUnit;
-                        marginbottomp = ((bH * 256) + bL) * thisDefaultUnit;
+                        margintopp = ((tH * 256) + tL) * (int) thisDefaultUnit;
+                        marginbottomp = ((bH * 256) + bL) * (int) thisDefaultUnit;
                         if (marginbottomp > 22 * printerdpih) marginbottomp = 22 * printerdpih; // Max 22 inches
                         ypos = margintopp;
                         // cancel top and bottom margins (margintopp and marginbottomp - to be implemented)                            
@@ -2237,7 +2251,7 @@ main_loop_for_printing:
                         state = read_byte_from_printer((char *) &mH);
                         thisDefaultUnit = defaultUnit;
                         if (defaultUnit == 0) thisDefaultUnit = printerdpiv / (float) 360; // Default for command is 1/360 inch units
-                        ypos2 = margintopp + ((mH * 256) + mL) * thisDefaultUnit;
+                        ypos2 = margintopp + ((mH * 256) + mL) * (int) thisDefaultUnit;
                         // Ignore if movement is more than 179/360" upwards
                         if (ypos2 < (ypos - (printerdpiv * ((float) 179/(float) 360))) ) ypos2 = ypos;
                         // Ignore if command would move upwards after graphics command sent on current line, or above where graphics have 
@@ -2260,7 +2274,7 @@ main_loop_for_printing:
                             // Handle negative movement
                             mH = 127 - mH;
                         }
-                        ypos2 = ypos + ((mH * 256) + mL) * thisDefaultUnit;
+                        ypos2 = ypos + ((mH * 256) + mL) * (int) thisDefaultUnit;
                         // Ignore if movement is more than 179/360" upwards
                         if (ypos2 < (ypos - (printerdpiv * ((float) 179/(float) 360))) ) ypos2 = ypos;                        
                         // ignore if command would move upwards after graphics command sent on current line, or above where graphics have 
@@ -2302,7 +2316,7 @@ main_loop_for_printing:
                     if (state == 0) break;
                     thisDefaultUnit = defaultUnit;
                     if (defaultUnit == 0) thisDefaultUnit = printerdpih / (float) 60; // Default for command is 1/180 inch units in LQ mode
-                    xpos2 = ((nH * 256) + nL) * thisDefaultUnit + marginleftp;
+                    xpos2 = ((nH * 256) + nL) * (int) thisDefaultUnit + marginleftp;
                     if (xpos2 > marginrightp) {
                         // No action
                     } else {
@@ -2326,7 +2340,7 @@ main_loop_for_printing:
                         // Handle negative movement
                         nH = 127 - nH;
                     }
-                    xpos2 = xpos + ((nH * 256) + nL) * thisDefaultUnit;
+                    xpos2 = xpos + ((nH * 256) + nL) * (int) thisDefaultUnit;
                     if (xpos2 < marginleftp || xpos2 > marginrightp) {
                         // No action
                     } else {
@@ -3169,7 +3183,7 @@ main_loop_for_printing:
                         thisDefaultUnit = defaultUnit;
                         if (defaultUnit == 0) thisDefaultUnit = printerdpiv / (float) 360; // Default for command is 1/360 inch units
                         /* TO DO
-                        int pageLength = ((mH * 256) + mL) * thisDefaultUnit;
+                        int pageLength = ((mH * 256) + mL) * (int) thisDefaultUnit;
                         if (pageLength > pageSetHeight) {
                             // Free more memory and reset the pagesetheight and default margins
                         }
@@ -3193,8 +3207,8 @@ main_loop_for_printing:
                         state = read_byte_from_printer((char *) &bH);
                         thisDefaultUnit = defaultUnit;
                         if (defaultUnit == 0) thisDefaultUnit = printerdpiv / (float) 360; // Default for command is 1/360 inch units
-                        margintopp = ((tH * 256) + tL) * thisDefaultUnit;
-                        marginbottomp = ((bH * 256) + bL) * thisDefaultUnit;
+                        margintopp = ((tH * 256) + tL) * (int) thisDefaultUnit;
+                        marginbottomp = ((bH * 256) + bL) * (int) thisDefaultUnit;
                         if (marginbottomp > 22 * printerdpih) marginbottomp = 22 * printerdpih; // Max 22 inches
                         if (marginbottomp > pageSetHeight) marginbottomp = pageSetHeight;
                         ypos = margintopp;
@@ -3211,7 +3225,7 @@ main_loop_for_printing:
                         state = read_byte_from_printer((char *) &mH);
                         thisDefaultUnit = defaultUnit;
                         if (defaultUnit == 0) thisDefaultUnit = printerdpiv / (float) 360; // Default for command is 1/360 inch units
-                        ypos2 = margintopp + ((mH * 256) + mL) * thisDefaultUnit;
+                        ypos2 = margintopp + ((mH * 256) + mL) * (int) thisDefaultUnit;
                         // Ignore if movement is more than 179/360" upwards
                         if (ypos2 < (ypos - (printerdpiv * ((float) 179/(float) 360))) ) ypos2 = ypos;
                         // Ignore if command would move upwards after graphics command sent on current line, or above where graphics have 
@@ -3234,7 +3248,7 @@ main_loop_for_printing:
                             // Handle negative movement
                             mH = 127 - mH;
                         }
-                        ypos2 = ypos + ((mH * 256) + mL) * thisDefaultUnit;
+                        ypos2 = ypos + ((mH * 256) + mL) * (int) thisDefaultUnit;
                         // Ignore if movement is more than 179/360" upwards
                         if (ypos2 < (ypos - (printerdpiv * ((float) 179/(float) 360))) ) ypos2 = ypos;                        
                         // ignore if command would move upwards after graphics command sent on current line, or above where graphics have 
@@ -3525,7 +3539,7 @@ main_loop_for_printing:
                     if (state == 0) break;
                     thisDefaultUnit = defaultUnit;
                     if (defaultUnit == 0) thisDefaultUnit = printerdpih / (float) 60; // Default for command is 1/180 inch units in LQ mode
-                    xpos2 = ((nH * 256) + nL) * thisDefaultUnit + marginleftp;
+                    xpos2 = ((nH * 256) + nL) * (int) thisDefaultUnit + marginleftp;
                     if (xpos2 > marginrightp) {
                         // No action
                     } else {
@@ -3549,7 +3563,7 @@ main_loop_for_printing:
                         // Handle negative movement
                         nH = 127 - nH;
                     }
-                    xpos2 = xpos + ((nH * 256) + nL) * thisDefaultUnit;
+                    xpos2 = xpos + ((nH * 256) + nL) * (int) thisDefaultUnit;
                     if (xpos2 < marginleftp || xpos2 > marginrightp) {
                         // No action
                     } else {
@@ -3642,8 +3656,7 @@ main_loop_for_printing:
     printf("\n\nI am at page %d\n", page);
 
     sprintf(filenameX, "%spage%d.png", pathpng, page);
-    printf("write   = %s \n", filenameX);
-    write_png(filenameX, pageSetWidth, pageSetHeight, printermemory);
+    int dataToConvert = write_png(filenameX, pageSetWidth, pageSetHeight, printermemory);
     
     if (rawispcl == 1) {
         sprintf(filenameX, "cp  %s*.raw  %s ", pathraw,pathpcl);
@@ -3666,10 +3679,21 @@ main_loop_for_printing:
             convertUnixWinMac(filenameX,filenameY);
         }
     }     
-
-    sprintf(filenameX, "convert  %spage%d.png  %spage%d.pdf ", pathpng, page,pathpdf, page);
-    printf("command = %s \n", filenameX);
-    system(filenameX);
+    if (dataToConvert > 0) {
+        sprintf(filenameX, "convert  %spage%d.png  %spage%d.pdf ", pathpng, page,pathpdf, page);
+        printf("command = %s \n", filenameX);
+        system(filenameX);
+        page++;
+        if (page > 199) {
+            page = dirX(pathraw); 
+            reduce_pages(page, pathraw);
+            page = dirX(pathpng);
+            reduce_pages(page, pathpng);
+            page = dirX(pathpdf);
+            reduce_pages(page, pathpdf);
+            page = dirX(pathpdf) + 1;
+        }
+    }
 
     system("sync &"); //avoid loss of data if usb-stick is pulled off   
  
@@ -3677,16 +3701,6 @@ main_loop_for_printing:
         fclose(fp);
         fp = NULL;
     }        // close text file
-    page++;
-    if (page > 199) {
-        page = dirX(pathraw); 
-        reduce_pages(page, pathraw);
-        page = dirX(pathpng);
-        reduce_pages(page, pathpng);
-        page = dirX(pathpdf);
-        reduce_pages(page, pathpdf);
-        page = dirX(pathpdf) + 1;
-    }
     
     // No more data to be read from file
     if (feof(inputFile)) {
