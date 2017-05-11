@@ -391,7 +391,7 @@ int write_png(const char *filename, int width, int height, char *rgb)
         goto finalise;
     }
 
-    // Write image data - 1 byte per pixel (8 bit RGB)
+    // Write image data - 8 bit RGB
     int x, y, ppos, rowCount = 0;
     for (y=0 ; y<height ; y++) {
         ipos = width * y;
@@ -641,26 +641,114 @@ int precedingDot(int x, int y) {
     return 1;
 }
 
+void _clear_seedRow(int seedrowColour) {
+    // 4 seedrows - each pixel is represented by a bit.
+    int bytePointer, seedrowStart, seedrowEnd;
+    if (seedrowColour > 3) seedrowColour = 3;
+    seedrowStart = (seedrowColour * pageSetWidth) /8;
+    seedrowEnd = seedrowStart + (pageSetWidth / 8);
+    for (bytePointer = seedrowStart; bytePointer < seedrowEnd; bytePointer++) {
+        seedrow[bytePointer]=0;
+    }    
+}
+
+void _print_seedRows(){
+    int store_colour, seedrowColour, bytePointer, seedrowStart, seedrowEnd;
+    int byteOffset, bitOffset, xByte;
+    unsigned char xd;
+    // Copy all seed data across to new row
+    store_colour = printColour;
+    xpos = marginleftp;
+    for (seedrowColour = 0; seedrowColour < 4; seedrowColour++) {
+        printColour = seedrowColour;
+        if (seedrowColour == 3) printColour = 4;
+        seedrowStart = (seedrowColour * pageSetWidth) /8;
+        seedrowEnd = seedrowStart + (pageSetWidth / 8);
+        bytePointer = seedrowStart + (xpos / 8);
+        bitOffset = 8 - (xpos & 8);                
+        for (byteOffset = bytePointer; byteOffset < seedrowEnd; byteOffset++) {
+            xd = seedrow[byteOffset]; 
+            if (xd > 0) {
+                for (xByte = bitOffset; xByte < 9; xByte++) {
+                    if (isNthBitSet(xd,xByte)) {
+                        putpixelbig(xpos, ypos, hPixelWidth, vPixelWidth);
+                    }
+                    xpos = xpos + hPixelWidth;
+                }
+            } else {
+                xpos = xpos + (hPixelWidth * (8-bitOffset));
+            }
+            bitOffset=0;
+        }
+        xpos = marginleftp;
+    }
+    printColour = store_colour;
+}
+
+void _print_incomingDataByte(int compressMode, unsigned char xd, int seedrowStart, int seedrowEnd) {
+    int byteOffset, bitOffset, xByte;
+    byteOffset = seedrowStart + (xpos / 8);
+    bitOffset = 7 - (xpos & 8);    
+    if (xd == 0) {
+        if (compressMode == 3) {
+            // for ESC.3 Delta Row clear bits in seedrow for current colour
+            for (xByte = 0; xByte < 8; xByte++) {
+                if (byteOffset < seedrowEnd) seedrow[byteOffset] &= ~(1 << bitOffset);
+            }
+            if (bitOffset == 0) {
+                byteOffset++;
+                bitOffset = 7;
+            } else {
+                bitOffset--;
+            }
+        }
+        xpos = xpos + (hPixelWidth * 8);
+    } else {
+        for (xByte = 0; xByte < 8; xByte++) {
+            if (compressMode == 3) {
+                if (xd & 128 && byteOffset < seedrowEnd ) {
+                    seedrow[byteOffset] |= (1 << bitOffset);
+                } else if (byteOffset < seedrowEnd ) {
+                    seedrow[byteOffset] &= ~(1 << bitOffset);
+                }
+                if (bitOffset == 0) {
+                    byteOffset++;
+                    bitOffset = 7;
+                } else {
+                    bitOffset--;
+                }                                
+            }
+            if (xd & 128) {
+                // Draw it on screen
+                putpixelbig(xpos, ypos, hPixelWidth, vPixelWidth);
+            }
+            xd = xd << 1;
+            xpos = xpos + hPixelWidth;
+        }
+    }    
+}
+
 void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth) {
     int opr, xByte, j, bytePointer, colour, existingColour, counterValue, repeatValue;
     unsigned char xd, repeater, command, dataCount;
     signed int parameter;
     int byteOffset, bitOffset;
     int moveSize = 1; // Set by MOVEXDOT or MOVEXBYTE
-    int seedrowOffset, colourLoop;
+    int seedrowColour, seedrowStart, seedrowEnd, colourLoop;
     if (compressMode == 3) {
         // Delta Row Compression - clear all seed rows
-        for (bytePointer = 0; bytePointer < (pageSetWidth * 4) / 8; bytePointer++) {
-            seedrow[bytePointer]=0;
+        for (j = 0; j < 4; j ++) {
+            _clear_seedRow(j);
         }
     }
     existingColour = printColour;
-    if (printColour > 4) printColour = 4;
+    if (printColour > 4) printColour = 4; /// Colours are 0 = BLACK, 1 = MAGENTA, 2 = CYAN, 4 = YELLOW
     
   tiff_delta_loop:
-    seedrowOffset = printColour;
-    if (seedrowOffset == 4) seedrowOffset = 3; // Colours are 0,1,2 and 4
-    seedrowOffset = (seedrowOffset * pageSetWidth) / 8;
+    seedrowColour = printColour;
+    if (seedrowColour == 4) seedrowColour = 3; // Colours are 0,1,2 and 4
+    seedrowStart = (seedrowColour * pageSetWidth) / 8;
+    seedrowEnd = seedrowStart + (pageSetWidth / 8);
     
     // timeout
     state = 0;
@@ -676,8 +764,6 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
     switch (command) {
     case 2:
         // XFER 0010 xxxx - parameter number of raster image data 0...15
-        byteOffset = seedrowOffset + (xpos / 8);
-        bitOffset = 7 - (xpos & 8);
         for (opr = 0; opr < parameter; opr ++) {
             state = 0;
             while (state == 0) {
@@ -693,44 +779,7 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
                         state = read_byte_from_printer((char *) &xd);  // byte to be printed
                         if (state == 0) goto raus_tiff_delta_print;
                     }
-                    if (xd == 0) {
-                        if (compressMode == 3) {
-                            // for ESC.3 Delta Row clear bits in seedrow for current colour
-                            for (xByte = 0; xByte < 8; xByte++) {
-                                if (byteOffset < pageSetWidth) seedrow[byteOffset] &= ~(1 << bitOffset);
-                            }
-                            if (bitOffset == 0) {
-                                byteOffset++;
-                                bitOffset = 7;
-                            } else {
-                                bitOffset--;
-                            }
-                        }
-                        xpos = xpos + (hPixelWidth * 8);
-                    } else {
-                        for (xByte = 0; xByte < 8; xByte++) {
-                            if (xd & 128) {
-                                putpixelbig(xpos, ypos, hPixelWidth, vPixelWidth);
-                                if (compressMode == 3) {
-                                    // for ESC.3 Delta Row also copy bytes to seedrow for current colour
-                                    if (byteOffset < pageSetWidth) seedrow[byteOffset] |= (1 << bitOffset);
-                                }
-                            } else if (compressMode == 3) {
-                                // for ESC.3 Delta Row clear bits in seedrow for current colour
-                                if (byteOffset < pageSetWidth) seedrow[byteOffset] &= ~(1 << bitOffset);
-                            }
-                            xd = xd << 1;
-                            if (compressMode == 3) {
-                                if (bitOffset == 0) {
-                                    byteOffset++;
-                                    bitOffset = 7;
-                                } else {
-                                    bitOffset--;
-                                }
-                            }
-                            xpos = xpos + hPixelWidth;
-                        }
-                    }
+                    _print_incomingDataByte(compressMode, xd, seedrowStart, seedrowEnd);
                     // SDL_UpdateRect(display, 0, 0, 0, 0);
                     opr++;
                 }
@@ -743,44 +792,7 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
                     if (state == 0) goto raus_tiff_delta_print;
                 }
                 for (j = 0; j < repeater; j++) {
-                    if (xd == 0) {
-                        if (compressMode == 3) {
-                            // for ESC.3 Delta Row clear bits in seedrow for current colour
-                            for (xByte = 0; xByte < 8; xByte++) {
-                                if (byteOffset < pageSetWidth) seedrow[byteOffset] &= ~(1 << bitOffset);
-                            }
-                            if (bitOffset == 0) {
-                                byteOffset++;
-                                bitOffset = 7;
-                            } else {
-                                bitOffset--;
-                            }
-                        }
-                        xpos = xpos + (hPixelWidth * 8);
-                    } else {                    
-                        for (xByte = 0; xByte < 8; xByte++) {
-                            if (xd & 128) {
-                                putpixelbig(xpos, ypos, hPixelWidth, vPixelWidth);
-                                if (compressMode == 3) {
-                                    // for ESC.3 Delta Row also copy bytes to seedrow for current colour
-                                    if (byteOffset < pageSetWidth) seedrow[byteOffset] |= (1 << bitOffset);
-                                }
-                            } else if (compressMode == 3) {
-                                // for ESC.3 Delta Row also clear bit in seedrow for current colour
-                                if (byteOffset < pageSetWidth) seedrow[byteOffset] &= ~(1 << bitOffset);
-                            }
-                            xd = xd << 1;
-                            if (compressMode == 3) {
-                                if (bitOffset == 0) {
-                                    byteOffset++;
-                                    bitOffset = 7;
-                                } else {
-                                    bitOffset--;
-                                }
-                            }
-                            xpos = xpos + hPixelWidth;
-                        }
-                    }
+                    _print_incomingDataByte(compressMode, xd, seedrowStart, seedrowEnd);
                     // SDL_UpdateRect(display, 0, 0, 0, 0);
                 }
                 opr++;
@@ -789,8 +801,6 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
         break;
     case 3:
         // XFER 0011 xxxx - parameter number of lookups to raster printer image data 1...2       
-        byteOffset = seedrowOffset + (xpos / 8);
-        bitOffset = 7 - (xpos & 8);
         if (parameter == 1) {
             state = 0;
             while (state == 0) {
@@ -827,44 +837,7 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
                         state = read_byte_from_printer((char *) &xd);  // byte to be printed
                         if (state == 0) goto raus_tiff_delta_print;
                     }
-                    if (xd == 0) {
-                        if (compressMode == 3) {
-                            // for ESC.3 Delta Row clear bits in seedrow for current colour
-                            for (xByte = 0; xByte < 8; xByte++) {
-                                if (byteOffset < pageSetWidth) seedrow[byteOffset] &= ~(1 << bitOffset);
-                            }
-                            if (bitOffset == 0) {
-                                byteOffset++;
-                                bitOffset = 7;
-                            } else {
-                                bitOffset--;
-                            }
-                        }
-                        xpos = xpos + (hPixelWidth * 8);
-                    } else {                    
-                        for (xByte = 0; xByte < 8; xByte++) {
-                            if (xd & 128) {
-                                putpixelbig(xpos, ypos, hPixelWidth, vPixelWidth);
-                                if (compressMode == 3) {
-                                    // for ESC.3 Delta Row also copy bytes to seedrow for current colour
-                                    if (byteOffset < pageSetWidth) seedrow[byteOffset] |= (1 << bitOffset);
-                                }
-                            } else if (compressMode == 3) {
-                                // for ESC.3 Delta Row clear bit in seedrow for current colour
-                                if (byteOffset < pageSetWidth) seedrow[byteOffset] &= ~(1 << bitOffset);
-                            }
-                            xd = xd << 1;
-                            if (compressMode == 3) {
-                                if (bitOffset == 0) {
-                                    byteOffset++;
-                                    bitOffset = 7;
-                                } else {
-                                    bitOffset--;
-                                }
-                            }
-                            xpos = xpos + hPixelWidth;
-                        }
-                    }
+                    _print_incomingDataByte(compressMode, xd, seedrowStart, seedrowEnd);
                     // SDL_UpdateRect(display, 0, 0, 0, 0);
                     opr++;
                 }
@@ -877,44 +850,7 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
                     if (state == 0) goto raus_tiff_delta_print;
                 }
                 for (j = 0; j < repeatValue; j++) {
-                    if (xd == 0) {
-                        if (compressMode == 3) {
-                            // for ESC.3 Delta Row clear bits in seedrow for current colour
-                            for (xByte = 0; xByte < 8; xByte++) {
-                                if (byteOffset < pageSetWidth) seedrow[byteOffset] &= ~(1 << bitOffset);
-                            }
-                            if (bitOffset == 0) {
-                                byteOffset++;
-                                bitOffset = 7;
-                            } else {
-                                bitOffset--;
-                            }
-                        }
-                        xpos = xpos + (hPixelWidth * 8);
-                    } else {                    
-                        for (xByte = 0; xByte < 8; xByte++) {
-                            if (xd & 128) {
-                                putpixelbig(xpos, ypos, hPixelWidth, vPixelWidth);
-                                if (compressMode == 3) {
-                                    // for ESC.3 Delta Row also copy bytes to seedrow for current colour
-                                    if (xpos < pageSetWidth) seedrow[byteOffset] |= (1 << bitOffset);
-                                }
-                            } else if (compressMode == 3) {
-                                // for ESC.3 Delta Row clear bit in seedrow for current colour
-                                if (xpos < pageSetWidth) seedrow[byteOffset] &= ~(1 << bitOffset);
-                            }
-                            xd = xd << 1;
-                            if (compressMode == 3) {
-                                if (bitOffset == 0) {
-                                    byteOffset++;
-                                    bitOffset = 7;
-                                } else {
-                                    bitOffset--;
-                                }
-                            }
-                            xpos = xpos + hPixelWidth;
-                        }
-                    }
+                    _print_incomingDataByte(compressMode, xd, seedrowStart, seedrowEnd);
                     // SDL_UpdateRect(display, 0, 0, 0, 0);
                 }
                 opr++;
@@ -926,7 +862,7 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
         if (parameter > 7) parameter = 7 - parameter;
         thisDefaultUnit = defaultUnit;
         if (defaultUnit == 0) thisDefaultUnit = printerdpiv / (float) 360; // Default for command is 1/360 inch units        
-        xpos2 = xpos + parameter * moveSize * thisDefaultUnit;
+        xpos2 = xpos + (parameter * moveSize * thisDefaultUnit);
         if (xpos2 >= marginleftp && xpos2 <= marginrightp) xpos = xpos2;
         break;
     case 5:
@@ -954,7 +890,7 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
         }
         thisDefaultUnit = defaultUnit;
         if (defaultUnit == 0) thisDefaultUnit = printerdpiv / (float) 360; // Default for command is 1/360 inch units        
-        xpos2 = xpos + parameter * moveSize * thisDefaultUnit;
+        xpos2 = xpos + (parameter * moveSize * thisDefaultUnit);
         if (xpos2 >= marginleftp && xpos2 <= marginrightp) xpos = xpos2;
         break;
     case 6:  
@@ -964,34 +900,7 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
         if (defaultUnit == 0) thisDefaultUnit = printerdpiv / (float) 360; // Default for command is 1/360 inch units
         ypos = ypos + (parameter * thisDefaultUnit);
         test_for_new_paper();
-        if (compressMode == 3) {
-            // Copy all seed data across to new row
-            colour = printColour;
-            for (colourLoop = 0; colourLoop < 4; colourLoop++) {
-                printColour = colourLoop;
-                if (colourLoop == 3) printColour = 4;
-                seedrowOffset  = (colourLoop * pageSetWidth) / 8;
-                xpos = marginleftp;
-                bytePointer = seedrowOffset + (xpos / 8);
-                bitOffset = 8 - (xpos & 8);
-                for (byteOffset = bytePointer; byteOffset < seedrowOffset + (pageSetWidth / 8); byteOffset++) {
-                    xd = seedrow[byteOffset]; 
-                    if (xd > 0) {
-                        for (xByte = bitOffset; xByte < 8; xByte++) {
-                            if (xd & 128) {
-                                putpixelbig(xpos, ypos, hPixelWidth, vPixelWidth);
-                            }
-                            xd = xd << 1;
-                            xpos = xpos + hPixelWidth;
-                        }
-                    } else {
-                        xpos = xpos + (hPixelWidth * (8-bitOffset));
-                    }
-                    bitOffset=0;
-                }
-            }
-            printColour = colour;
-        }
+        if (compressMode == 3) _print_seedRows();
         xpos = marginleftp;
         break;
     case 7:  
@@ -1019,34 +928,7 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
         if (defaultUnit == 0) thisDefaultUnit = printerdpiv / (float) 360; // Default for command is 1/360 inch units
         ypos = ypos + (parameter * thisDefaultUnit);
         test_for_new_paper();
-        if (compressMode == 3) {
-            // Copy all seed data across to new row
-            colour = printColour;
-            for (colourLoop = 0; colourLoop < 4; colourLoop++) {
-                printColour = colourLoop;
-                if (colourLoop == 3) printColour = 4;
-                seedrowOffset  = (colourLoop * pageSetWidth) / 8;
-                xpos = marginleftp;
-                bytePointer = seedrowOffset + (xpos / 8);
-                bitOffset = 8 - (xpos & 8);                
-                for (byteOffset = bytePointer; byteOffset < seedrowOffset + (pageSetWidth / 8); byteOffset++) {
-                    xd = seedrow[byteOffset]; 
-                    if (xd > 0) {
-                        for (xByte = bitOffset; xByte < 8; xByte++) {
-                            if (xd & 128) {
-                                putpixelbig(xpos, ypos, hPixelWidth, vPixelWidth);
-                            }
-                            xd = xd << 1;
-                            xpos = xpos + hPixelWidth;
-                        }
-                    } else {
-                        xpos = xpos + (hPixelWidth * (8-bitOffset));
-                    }
-                    bitOffset=0;
-                }
-            }
-            printColour = colour;
-        }
+        if (compressMode == 3) _print_seedRows();
         xpos = marginleftp;
         break;
     case 8:
@@ -1059,10 +941,7 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
             // CLR 1110 0001
             if (compressMode == 3) {
                 // Clear seedrow for current colour
-                bytePointer = seedrowOffset;
-                for (byteOffset = bytePointer; byteOffset < bytePointer + (pageSetWidth / 8); byteOffset++) {
-                    seedrow[byteOffset] = 0;
-                }
+                _clear_seedRow(seedrowColour);
                 // Reset the current row on the paper to white and then add the other colours
                 bytePointer = ypos * pageSetWidth;
                 // Clear display
@@ -1079,31 +958,7 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
                 printColour = colour;
                 
                 // Copy all other seed data across to row on page
-                colour = printColour;
-                for (colourLoop = 0; colourLoop < 4; colourLoop++) {
-                    printColour = colourLoop;
-                    if (colourLoop == 3) printColour = 4;
-                    seedrowOffset  = (colourLoop * pageSetWidth) / 8;
-                    xpos = marginleftp;
-                    bytePointer = seedrowOffset + (xpos / 8);
-                    bitOffset = 8 - (xpos & 8);                
-                    for (byteOffset = bytePointer; byteOffset < seedrowOffset + (pageSetWidth / 8); byteOffset++) {
-                        xd = seedrow[byteOffset]; 
-                        if (xd > 0) {
-                            for (xByte = bitOffset; xByte < 8; xByte++) {
-                                if (xd & 128) {
-                                    putpixelbig(xpos, ypos, hPixelWidth, vPixelWidth);
-                                }
-                                xd = xd << 1;
-                                xpos = xpos + hPixelWidth;
-                            }
-                        } else {
-                            xpos = xpos + (hPixelWidth * (8-bitOffset));
-                        }
-                        bitOffset=0;
-                    }
-                }
-                printColour = colour;
+                _print_seedRows();
                 xpos = marginleftp;
             }
             break;
