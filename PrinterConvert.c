@@ -52,6 +52,8 @@ char    pathcreator[1000];  //path to usb
 struct timespec tvx;
 int startzeit;              // start time for time measures to avoid infinite loops
 
+// colour table for quick lookup to convert printer colours to RGB
+char red[129], green[129], blue[129];
 int WHITE = 128;                        // Bit 7 is set for a white pixel in printermemory
 
 int t1=0,t2=0,t3=0,t4=0,t5=0;
@@ -92,126 +94,6 @@ int escZbitDensity         = 3;         // 240 dpi
 SDL_Surface *display;
 
 FILE *inputFile;
-
-void erasepage()
-{
-    int i;  
-    for (i = 0; i < pageSetWidth * pageSetHeight; i++) printermemory[i] = WHITE;
-}
-
-int initialize()
-{
-    // Set page size for input file
-    // Based it on support for 720dpi (24 pin printers)
-    // All settings have to be in inches - 1 mm = (1/25.4)"
-    pageSize = 0; 
-    
-    switch (pageSize) {
-    case 0:
-        // A4
-        pageSetWidth = 5954; // 720 * 8.27"
-        pageSetHeight = 8417; // 720 * 11.69"
-        defaultMarginLeftp = 85; // 720 x 3mm
-        defaultMarginRightp = pageSetWidth - 85; // 720 x 3mm
-        defaultMarginTopp = 241; // 720 x 8.5mm
-        defaultMarginBottomp = pageSetHeight - 382; // 720 x 13.5mm
-        break;
-    case 1:
-        // A4 Landscape
-        pageSetWidth = 8417; // 720 * 11.69"
-        pageSetHeight = 5954; // 720 * 8.27"
-        defaultMarginLeftp = 85; // 720 x 3mm
-        defaultMarginRightp = pageSetWidth - 85; // 720 x 3mm
-        defaultMarginTopp = 241; // 720 x 8.5mm
-        defaultMarginBottomp = pageSetHeight - 382; // 720 x 13.5mm
-        break;
-    case 2:
-        // 12" Paper - Fanfold
-        pageSetWidth = 5954; // 720 * 8.27"
-        pageSetHeight = 8640; // 720 * 12"
-        defaultMarginLeftp = 85; // 720 x 3mm
-        defaultMarginRightp = pageSetWidth - 85; // 720 x 3mm
-        defaultMarginTopp = 255; // 720 x 9mm
-        defaultMarginBottomp = pageSetHeight - 355; // 720 x 9mm
-        break;        
-    }
-
-    marginleftp = defaultMarginLeftp;
-    marginrightp = defaultMarginRightp;   // in pixels
-    margintopp = defaultMarginTopp;
-    marginbottomp = defaultMarginBottomp;
-    
-    // Set aside enough memory to store the parsed image
-    printermemory = malloc ((pageSetWidth+1) * pageSetHeight);
-    if (printermemory == NULL) {
-        fprintf(stderr, "Can't allocate memory for Printer Conversion.\n");
-        exit (0);
-    }
-    // For Delta Row compression - set aside room to store 4 seed rows (1 per supported colour)
-    seedrow = calloc ((pageSetWidth+1) * 4, 1);
-    if (seedrow == NULL) {
-        free(printermemory);
-        fprintf(stderr, "Can't allocate memory for Delta Row Printing.\n");
-        exit (0);
-    }      
-    erasepage();
-    /* routine could be used here to open the input file or port for reading 
-    *  example is for reading from an input file called ./Test1.prn
-    *  The routine is not error trapped at present
-    */
-    inputFile = fopen("./Test1.prn", "r");
-    if (inputFile == NULL) return -1;
-    timeout = 0; // When reading from a file, the timeout can be set to zero
-}
-
-int read_byte_from_printer(unsigned char *bytex)
-{
-    /* This routine needs to be written according to your requirements
-    * the routine needs to fetch the next byte from the captured printer data file (or port).
-    */
-    unsigned char databyte;
-    // read databyte from file or port...
-    // Example below is reading a character from the file opened in initialize();
-    // take account of msbsetting : 0 - use bit 7 as set in data, 1 - clear bit 7 of all data, 2 - set bit 7 of all data
-
-    if (timeout > 0) {
-        clock_gettime(CLOCK_REALTIME, &tvx);
-        startzeit = tvx.tv_sec;
-    }
-    while (!feof(inputFile)) {
-        databyte = fgetc(inputFile);
-        if (timeout > 0) {
-            clock_gettime(CLOCK_REALTIME, &tvx);
-            if (((tvx.tv_sec - startzeit) >= timeout)) return 0;
-        }        
-        switch (msbsetting) {
-        case 0:
-            // No change
-            break;
-        case 1:
-            // MSB is set byte 7 to 0
-            databyte = databyte & 127;
-            break;
-        case 2:
-            // MSB is set byte 7 to 1
-            databyte = databyte | 128;
-            break;
-        }
-        *bytex = databyte;
-        return 1;
-    }
-    return 0;
-}
-
-/*
- * Check if a file exist using stat() function
- * return 1 if the file exist otherwise return 0
- */
-int cfileexists(const char* filename)
-{
-    struct stat   buffer;   
-    return (stat (filename, &buffer) == 0);
-}
 
 int isNthBitSet (unsigned char c, int n) {
     return (c >> n) & 1;
@@ -321,10 +203,143 @@ int * lookupColour(unsigned char colourValue)
     return rgb1;
 }
 
+void setupColourTable()
+{
+    // Create a lookup table to look up all of the possible colour combinations and convert to RGB for quicker PNG generation
+    int j, *pixelColour;    
+    for (j = 0; j<=128; j++) {
+        pixelColour = lookupColour(j);
+        red[j] = pixelColour[0];
+        green[j] = pixelColour[1];
+        blue[j] = pixelColour[2];
+    }
+}
+
+void erasepage()
+{
+    int i;  
+    for (i = 0; i < pageSetWidth * pageSetHeight; i++) printermemory[i] = WHITE;
+}
+
+int initialize()
+{
+    // Set page size for input file
+    // Based it on support for 720dpi (24 pin printers)
+    // All settings have to be in inches - 1 mm = (1/25.4)"
+    pageSize = 0; 
+    
+    switch (pageSize) {
+    case 0:
+        // A4
+        pageSetWidth = 5954; // 720 * 8.27"
+        pageSetHeight = 8417; // 720 * 11.69"
+        defaultMarginLeftp = 85; // 720 x 3mm
+        defaultMarginRightp = pageSetWidth - 85; // 720 x 3mm
+        defaultMarginTopp = 241; // 720 x 8.5mm
+        defaultMarginBottomp = pageSetHeight - 382; // 720 x 13.5mm
+        break;
+    case 1:
+        // A4 Landscape
+        pageSetWidth = 8417; // 720 * 11.69"
+        pageSetHeight = 5954; // 720 * 8.27"
+        defaultMarginLeftp = 85; // 720 x 3mm
+        defaultMarginRightp = pageSetWidth - 85; // 720 x 3mm
+        defaultMarginTopp = 241; // 720 x 8.5mm
+        defaultMarginBottomp = pageSetHeight - 382; // 720 x 13.5mm
+        break;
+    case 2:
+        // 12" Paper - Fanfold
+        pageSetWidth = 5954; // 720 * 8.27"
+        pageSetHeight = 8640; // 720 * 12"
+        defaultMarginLeftp = 85; // 720 x 3mm
+        defaultMarginRightp = pageSetWidth - 85; // 720 x 3mm
+        defaultMarginTopp = 255; // 720 x 9mm
+        defaultMarginBottomp = pageSetHeight - 355; // 720 x 9mm
+        break;        
+    }
+
+    marginleftp = defaultMarginLeftp;
+    marginrightp = defaultMarginRightp;   // in pixels
+    margintopp = defaultMarginTopp;
+    marginbottomp = defaultMarginBottomp;
+    
+    // Set aside enough memory to store the parsed image
+    printermemory = malloc ((pageSetWidth+1) * pageSetHeight);
+    if (printermemory == NULL) {
+        fprintf(stderr, "Can't allocate memory for Printer Conversion.\n");
+        exit (0);
+    }
+    // For Delta Row compression - set aside room to store 4 seed rows (1 per supported colour)
+    seedrow = calloc ((pageSetWidth+1) * 4, 1);
+    if (seedrow == NULL) {
+        free(printermemory);
+        fprintf(stderr, "Can't allocate memory for Delta Row Printing.\n");
+        exit (0);
+    }      
+    erasepage();
+    setupColourTable();
+    /* routine could be used here to open the input file or port for reading 
+    *  example is for reading from an input file called ./Test1.prn
+    *  The routine is not error trapped at present
+    */
+    inputFile = fopen("./Test1.prn", "r");
+    if (inputFile == NULL) return -1;
+    timeout = 0; // When reading from a file, the timeout can be set to zero
+}
+
+int read_byte_from_printer(unsigned char *bytex)
+{
+    /* This routine needs to be written according to your requirements
+    * the routine needs to fetch the next byte from the captured printer data file (or port).
+    */
+    unsigned char databyte;
+    // read databyte from file or port...
+    // Example below is reading a character from the file opened in initialize();
+    // take account of msbsetting : 0 - use bit 7 as set in data, 1 - clear bit 7 of all data, 2 - set bit 7 of all data
+
+    if (timeout > 0) {
+        clock_gettime(CLOCK_REALTIME, &tvx);
+        startzeit = tvx.tv_sec;
+    }
+    while (!feof(inputFile)) {
+        databyte = fgetc(inputFile);
+        if (timeout > 0) {
+            clock_gettime(CLOCK_REALTIME, &tvx);
+            if (((tvx.tv_sec - startzeit) >= timeout)) return 0;
+        }        
+        switch (msbsetting) {
+        case 0:
+            // No change
+            break;
+        case 1:
+            // MSB is set byte 7 to 0
+            databyte = databyte & 127;
+            break;
+        case 2:
+            // MSB is set byte 7 to 1
+            databyte = databyte | 128;
+            break;
+        }
+        *bytex = databyte;
+        return 1;
+    }
+    return 0;
+}
+
+/*
+ * Check if a file exist using stat() function
+ * return 1 if the file exist otherwise return 0
+ */
+int cfileexists(const char* filename)
+{
+    struct stat   buffer;   
+    return (stat (filename, &buffer) == 0);
+}
+
 int write_png(const char *filename, int width, int height, char *rgb)
 {
     int ipos, data_found = 0, end_loop = 0;
-    int *pixelColour;
+    int pixelColour;
     int code = 1;
     png_structp png_ptr = NULL;
     png_infop info_ptr = NULL;
@@ -396,6 +411,10 @@ int write_png(const char *filename, int width, int height, char *rgb)
         title_text.text = title;
         png_set_text(png_ptr, info_ptr, &title_text, 1);
     }
+    
+    // Set the resolution of the image to 720dpi
+    png_set_pHYs(png_ptr, info_ptr, printerdpih/0.0254, printerdpiv/0.0254,
+        PNG_RESOLUTION_METER);  
 
     png_write_info(png_ptr, info_ptr);
     
@@ -411,17 +430,18 @@ int write_png(const char *filename, int width, int height, char *rgb)
     int x, y, ppos, rowCount = 0;
     for (y=0 ; y<height ; y++) {
         ipos = width * y;
+        ppos=0;
         for (x=0 ; x<width ; x++) {
-            ppos = x * 3;
-            pixelColour = lookupColour(rgb[ipos + x]);
-            row[ppos+0] = pixelColour[0];
-            row[ppos+1] = pixelColour[1];
-            row[ppos+2] = pixelColour[2];
+            pixelColour = rgb[ipos + x];
+            row[ppos++] = red[pixelColour];
+            row[ppos++] = green[pixelColour];
+            row[ppos++] = blue[pixelColour];
         }
         png_write_row(png_ptr, row);
     }
     // End write
     png_write_end(png_ptr, NULL);    
+    
     
 finalise:
     if (file != NULL) fclose(file);
