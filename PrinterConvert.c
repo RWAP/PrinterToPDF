@@ -15,7 +15,7 @@
  * Relies on libpng and ImageMagick libraries
  */
 
-// Configuration options - these are currently intended to be simple files with flags 
+// Configuration options - these are currently intended to be simple files with flags
 #define EMULATION_CONFIG    "/root/config/emulation"
 #define LINEFEED_CONFIG     "/root/config/linefeed_ending"
 #define PATH_CONFIG         "/root/config/output_path"
@@ -41,7 +41,7 @@ int state = 1;              // State of the centronics interface
 int timeout = 4;            // printout finished after this time. so start to print all received data.
 int countcharz;
 
-char    path[1000];         // main path 
+char    path[1000];         // main path
 char    pathraw[1000];      //path to raw files
 char    pathpng[1000];      //path to png files
 char    pathpdf[1000];      //path to pdf files
@@ -64,7 +64,7 @@ int rawiseps               = 0;         //if 1 the raw folder is copied to eps f
 int outputFormatText       = 0;         //0=no conversion  1=Unix (LF) 2= Windows (CR+LF) 3=MAC (CR)
 int printColour            = 0;         //Default colour is black
 double defaultUnit         = 0;         //Use Default defined unit
-double thisDefaultUnit     = 0;         //Default unit for use by command    
+double thisDefaultUnit     = 0;         //Default unit for use by command
 
 int bold                   = 0;         //Currently bold and double-strike are the same
 int italic                 = 0;
@@ -99,16 +99,98 @@ int isNthBitSet (unsigned char c, int n) {
     return (c >> n) & 1;
 }
 
+// CMYK Colour mixing method
+double * rgb_to_cmyk(int rgb_red, int rgb_green, int rgb_blue)
+{
+    static double cmyk_value[4];
+    double rgb_scale = 255, cmyk_scale = 100, min_cmy;
+
+    cmyk_value[0] = 0;
+    cmyk_value[1] = 0;
+    cmyk_value[2] = 0;
+    cmyk_value[3] = 0;
+
+    if ((rgb_red == 0) && (rgb_green == 0) && (rgb_blue == 0)) {
+        // black
+        return cmyk_value;
+    }
+
+    // Change rgb [0,255] -> cmy [0,1]
+    cmyk_value[0] = 1 - ((double) rgb_red / rgb_scale);
+    cmyk_value[1] = 1 - ((double) rgb_green / rgb_scale);
+    cmyk_value[2] = 1 - ((double) rgb_blue / rgb_scale);
+
+    // extract out k [0,1]
+    min_cmy = cmyk_value[0];
+    if (cmyk_value[1] < min_cmy) min_cmy = cmyk_value[1];
+    if (cmyk_value[2] < min_cmy) min_cmy = cmyk_value[2];
+    cmyk_value[0] = (cmyk_value[0] - min_cmy);
+    cmyk_value[1] = (cmyk_value[1] - min_cmy);
+    cmyk_value[2] = (cmyk_value[2] - min_cmy);
+    cmyk_value[3] = min_cmy;
+
+    // rescale to the range [0,cmyk_scale]
+    cmyk_value[0] = cmyk_value[0] * cmyk_scale;
+    cmyk_value[1] = cmyk_value[1] * cmyk_scale;
+    cmyk_value[2] = cmyk_value[2] * cmyk_scale;
+    cmyk_value[3] = cmyk_value[3] * cmyk_scale;
+
+    return cmyk_value;
+}
+int * cmyk_to_rgb(double cmyk_c, double cmyk_m, double cmyk_y, double cmyk_k)
+{
+    static int rgb_value[3]; // test
+    double rgb_scale = 255, cmyk_scale = 100;
+
+    rgb_value[0] = rgb_scale*(1.0-(cmyk_c+cmyk_k)/cmyk_scale);
+    rgb_value[1] = rgb_scale*(1.0-(cmyk_m+cmyk_k)/cmyk_scale);
+    rgb_value[2] = rgb_scale*(1.0-(cmyk_y+cmyk_k)/cmyk_scale);
+    return rgb_value;
+}
+
+int * cmykColourMix(int rgb_red1, int rgb_green1, int rgb_blue1, int rgb_red2, int rgb_green2, int rgb_blue2)
+{
+    static int rgb_result[4];
+    int *rgb_lookups;
+    double *cmyk, cmyk_result_c, cmyk_result_m, cmyk_result_y, cmyk_result_k, opacity = 0.5;
+    cmyk_result_c = 0;
+    cmyk_result_m = 0;
+    cmyk_result_y = 0;
+    cmyk_result_k = 0;
+
+    cmyk = rgb_to_cmyk(rgb_red1, rgb_green1, rgb_blue1);
+    cmyk_result_c += opacity * cmyk[0];
+    cmyk_result_m += opacity * cmyk[1];
+    cmyk_result_y += opacity * cmyk[2];
+    cmyk_result_k += opacity * cmyk[3];
+
+    cmyk = rgb_to_cmyk(rgb_red2, rgb_green2, rgb_blue2);
+    cmyk_result_c += opacity * cmyk[0];
+    cmyk_result_m += opacity * cmyk[1];
+    cmyk_result_y += opacity * cmyk[2];
+    cmyk_result_k += opacity * cmyk[3];
+
+    rgb_lookups = cmyk_to_rgb(cmyk_result_c, cmyk_result_m, cmyk_result_y, cmyk_result_k);
+    rgb_result[0] = rgb_lookups[0];
+    rgb_result[1] = rgb_lookups[1];
+    rgb_result[2] = rgb_lookups[2];
+    rgb_result[3] = rgb_lookups[3];
+    return rgb_result;
+}
+
 int * lookupColour(unsigned char colourValue)
 {
     // Convert printer colour (0 to 7 stored in bits of colourValue) to RGB value
     // Routine uses averaging to get colours such as pink (red + white)
     static int rgb1[3];
-    int blackSet = 0;
+    int colourMixMethod = 2; // 1 = RGB simple addition method, 2 = Standard CMYK Mix with conversion -
+    int *mixedColour;
+    int mixedColour_red, mixedColour_green, mixedColour_blue;
     rgb1[0]=0;
     rgb1[1]=0;
-    rgb1[2]=0;        
+    rgb1[2]=0;
     if (colourValue == 0 || colourValue == 1) return rgb1; // Black
+    int mixColour = 0;
     if (colourValue == WHITE) {
         // Bit 7 is set for white - not supported on printers
         rgb1[0]=255;
@@ -118,95 +200,142 @@ int * lookupColour(unsigned char colourValue)
     }
     if (isNthBitSet(colourValue, 0) ) {
         // Black - default
-        blackSet = 1;
+        mixColour = 1;
     }
+
+    mixedColour_red = rgb1[0];
+    mixedColour_green = rgb1[1];
+    mixedColour_blue = rgb1[2];
+
     if (isNthBitSet(colourValue, 1) ) {
         // Magenta FF00FF
-        if (blackSet || rgb1[0]>0) {
-            rgb1[0] = (rgb1[0] + 255) /2;
+        if (mixColour == 1) {
+            if (colourMixMethod == 1) {
+            mixedColour_red = (mixedColour_red + 255) /2;
+            mixedColour_green = (mixedColour_green + 0) /2;
+            mixedColour_blue = (mixedColour_blue + 255) /2;
+            } else {
+                mixedColour = cmykColourMix(mixedColour_red, mixedColour_green, mixedColour_blue, 255, 0, 255);
+                mixedColour_red = mixedColour[0];
+                mixedColour_green = mixedColour[1];
+                mixedColour_blue = mixedColour[2];
+            }
         } else {
-            rgb1[0] = 255;
+            mixedColour_red = 255;
+            mixedColour_green = 0;
+            mixedColour_blue = 255;
         }
-        if (rgb1[1]>0) rgb1[1] = (rgb1[1] + 0) /2;
-        if (blackSet || rgb1[2]>0) {
-            rgb1[2] = (rgb1[2] + 255) /2;
-        } else {
-            rgb1[2] = 255;
-        }
+        mixColour = 1;
     }
     if (isNthBitSet(colourValue, 2) ) {
         // Cyan 00FFFF
-        if (rgb1[0]>0) rgb1[0] = (rgb1[0] + 0) /2;
-        if (blackSet || rgb1[1]>0) {
-            rgb1[1] = (rgb1[1] + 255) /2;
+        if (mixColour == 1) {
+            if (colourMixMethod == 1) {
+            mixedColour_red = (mixedColour_red + 0) /2;
+            mixedColour_green = (mixedColour_green + 255) /2;
+            mixedColour_blue = (mixedColour_blue + 255) /2;
+            } else {
+                mixedColour = cmykColourMix(mixedColour_red, mixedColour_green, mixedColour_blue, 0, 255, 255);
+                mixedColour_red = mixedColour[0];
+                mixedColour_green = mixedColour[1];
+                mixedColour_blue = mixedColour[2];
+            }
         } else {
-            rgb1[1] = 255;
+            mixedColour_red = 0;
+            mixedColour_green = 255;
+            mixedColour_blue = 255;
         }
-        if (blackSet || rgb1[2]>0) {
-            rgb1[2] = (rgb1[2] + 255) /2;
-        } else {
-            rgb1[2] = 255;
-        }
-    }     
+        mixColour = 1;
+    }
     if (isNthBitSet(colourValue, 3) ) {
         // Violet EE82EE
-        if (blackSet || rgb1[0]>0) {
-            rgb1[0] = (rgb1[0] + 238) /2;
+        if (mixColour == 1) {
+            if (colourMixMethod == 1) {
+            mixedColour_red = (mixedColour_red + 238) /2;
+            mixedColour_green = (mixedColour_green + 130) /2;
+            mixedColour_blue = (mixedColour_blue + 238) /2;
+            } else {
+                mixedColour = cmykColourMix(mixedColour_red, mixedColour_green, mixedColour_blue, 238, 130, 238);
+                mixedColour_red = mixedColour[0];
+                mixedColour_green = mixedColour[1];
+                mixedColour_blue = mixedColour[2];
+            }
         } else {
-            rgb1[0] = 238;
+            mixedColour_red = 238;
+            mixedColour_green = 130;
+            mixedColour_blue = 238;
         }
-        if (blackSet || rgb1[1]>0) {
-            rgb1[1] = (rgb1[1] + 130) /2;
-        } else {
-            rgb1[1] = 130;
-        }        
-        if (blackSet || rgb1[2]>0) {
-            rgb1[2] = (rgb1[2] + 238) /2;
-        } else {
-            rgb1[2] = 238;
-        }
+        mixColour = 1;
     }
     if (isNthBitSet(colourValue, 4) ) {
         // Yellow FFFF00
-        if (blackSet || rgb1[0]>0) {
-            rgb1[0] = (rgb1[0] + 255) /2;
+        if (mixColour == 1) {
+            if (colourMixMethod == 1) {
+            mixedColour_red = (mixedColour_red + 255) /2;
+            mixedColour_green = (mixedColour_green + 255) /2;
+            mixedColour_blue = (mixedColour_blue + 0) /2;
+            } else {
+                mixedColour = cmykColourMix(mixedColour_red, mixedColour_green, mixedColour_blue, 255, 255, 0);
+                mixedColour_red = mixedColour[0];
+                mixedColour_green = mixedColour[1];
+                mixedColour_blue = mixedColour[2];
+            }
         } else {
-            rgb1[0] = 255;
+            mixedColour_red = 255;
+            mixedColour_green = 255;
+            mixedColour_blue = 0;
         }
-        if (blackSet || rgb1[1]>0) {
-            rgb1[1] = (rgb1[1] + 255) /2;
-        } else {
-            rgb1[1] = 255;
-        }
-        if (rgb1[2]>0) rgb1[2] = (rgb1[2] + 0) /2;
+        mixColour = 1;
     }
     if (isNthBitSet(colourValue, 5) ) {
         // Red FF0000
-        if (blackSet || rgb1[0]>0) {
-            rgb1[0] = (rgb1[0] + 255) /2;
+        if (mixColour == 1) {
+            if (colourMixMethod == 1) {
+            mixedColour_red = (mixedColour_red + 255) /2;
+            mixedColour_green = (mixedColour_green + 0) /2;
+            mixedColour_blue = (mixedColour_blue + 0) /2;
+            } else {
+                mixedColour = cmykColourMix(mixedColour_red, mixedColour_green, mixedColour_blue, 255, 0, 0);
+                mixedColour_red = mixedColour[0];
+                mixedColour_green = mixedColour[1];
+                mixedColour_blue = mixedColour[2];
+            }
         } else {
-            rgb1[0] = 255;
-        }       
-        if (rgb1[1]>0) rgb1[1] = (rgb1[1] + 0) /2;
-        if (rgb1[2]>0) rgb1[2] = (rgb1[2] + 0) /2;
+            mixedColour_red = 255;
+            mixedColour_green = 0;
+            mixedColour_blue = 0;
+        }
+        mixColour = 1;
     }
     if (isNthBitSet(colourValue, 6) ) {
         // Green 00FF00
-        if (rgb1[0]>0) rgb1[0] = (rgb1[0] + 0) /2;
-        if (blackSet || rgb1[1]>0) {
-            rgb1[1] = (rgb1[1] + 255) /2;
+        if (mixColour == 1) {
+            if (colourMixMethod == 1) {
+            mixedColour_red = (mixedColour_red + 0) /2;
+            mixedColour_green = (mixedColour_green + 255) /2;
+            mixedColour_blue = (mixedColour_blue + 0) /2;
+            } else {
+                mixedColour = cmykColourMix(mixedColour_red, mixedColour_green, mixedColour_blue, 0, 255, 0);
+                mixedColour_red = mixedColour[0];
+                mixedColour_green = mixedColour[1];
+                mixedColour_blue = mixedColour[2];
+            }
         } else {
-            rgb1[1] = 255;
+            mixedColour_red = 0;
+            mixedColour_green = 255;
+            mixedColour_blue = 0;
         }
-        if (rgb1[2]>0) rgb1[2] = (rgb1[2] + 0) /2;
     }
+    rgb1[0] = mixedColour_red;
+    rgb1[1] = mixedColour_green;
+    rgb1[2] = mixedColour_blue;
     return rgb1;
 }
 
 void setupColourTable()
 {
     // Create a lookup table to look up all of the possible colour combinations and convert to RGB for quicker PNG generation
-    int j, *pixelColour;    
+    int j, *pixelColour;
     for (j = 0; j<=128; j++) {
         pixelColour = lookupColour(j);
         red[j] = pixelColour[0];
@@ -217,7 +346,7 @@ void setupColourTable()
 
 void erasepage()
 {
-    int i;  
+    int i;
     for (i = 0; i < pageSetWidth * pageSetHeight; i++) printermemory[i] = WHITE;
 }
 
@@ -226,8 +355,8 @@ int initialize()
     // Set page size for input file
     // Based it on support for 720dpi (24 pin printers)
     // All settings have to be in inches - 1 mm = (1/25.4)"
-    pageSize = 0; 
-    
+    pageSize = 0;
+
     switch (pageSize) {
     case 0:
         // A4
@@ -255,14 +384,14 @@ int initialize()
         defaultMarginRightp = pageSetWidth - 85; // 720 x 3mm
         defaultMarginTopp = 255; // 720 x 9mm
         defaultMarginBottomp = pageSetHeight - 355; // 720 x 9mm
-        break;        
+        break;
     }
 
     marginleftp = defaultMarginLeftp;
     marginrightp = defaultMarginRightp;   // in pixels
     margintopp = defaultMarginTopp;
     marginbottomp = defaultMarginBottomp;
-    
+
     // Set aside enough memory to store the parsed image
     printermemory = malloc ((pageSetWidth+1) * pageSetHeight);
     if (printermemory == NULL) {
@@ -275,16 +404,16 @@ int initialize()
         free(printermemory);
         fprintf(stderr, "Can't allocate memory for Delta Row Printing.\n");
         exit (0);
-    }      
+    }
     erasepage();
     setupColourTable();
-    /* routine could be used here to open the input file or port for reading 
+    /* routine could be used here to open the input file or port for reading
     *  example is for reading from an input file called ./Test1.prn
     *  The routine is not error trapped at present
     */
     inputFile = fopen("./Test1.prn", "r");
     if (inputFile == NULL) return -1;
-    timeout = 0; // When reading from a file, the timeout can be set to zero
+    timeout = 0; // When reading from a file, the timeout can be set to zero    
 }
 
 int read_byte_from_printer(unsigned char *bytex)
@@ -306,7 +435,7 @@ int read_byte_from_printer(unsigned char *bytex)
         if (timeout > 0) {
             clock_gettime(CLOCK_REALTIME, &tvx);
             if (((tvx.tv_sec - startzeit) >= timeout)) return 0;
-        }        
+        }
         switch (msbsetting) {
         case 0:
             // No change
@@ -332,7 +461,7 @@ int read_byte_from_printer(unsigned char *bytex)
  */
 int cfileexists(const char* filename)
 {
-    struct stat   buffer;   
+    struct stat   buffer;
     return (stat (filename, &buffer) == 0);
 }
 
@@ -345,11 +474,11 @@ int write_png(const char *filename, int width, int height, char *rgb)
     png_infop info_ptr = NULL;
     png_bytep row = NULL;
     FILE *file;
-    
+
     // Check if a blank page - if so ignore it!
     while (data_found == 0 && end_loop == 0) {
         // Write image data - 8 bit RGB
-        int x, y, ppos, rowCount = 0;
+        int x, y, ppos;
         for (y=0 ; y<height ; y++) {
             ipos = width * y;
             for (x=0 ; x<width ; x++) {
@@ -359,10 +488,8 @@ int write_png(const char *filename, int width, int height, char *rgb)
         end_loop = 1;
     }
     if (!data_found) return 0; // Nothing to print
-    
+
     printf("write   = %s \n", filenameX);
-    
-    char *title = "ESC/P2 converted image";
 
     // Open file for writing (binary mode)
     file = fopen(filename, "wb");
@@ -386,7 +513,7 @@ int write_png(const char *filename, int width, int height, char *rgb)
         code = 0;
         goto finalise;
     }
-    
+
     png_set_compression_level(png_ptr, 6);  // Minimal compression for speed - balance against time taken by convert routine
 
     // Setup Exception handling
@@ -403,23 +530,14 @@ int write_png(const char *filename, int width, int height, char *rgb)
                 8, PNG_COLOR_TYPE_RGB, PNG_INTERLACE_NONE,
                 PNG_COMPRESSION_TYPE_DEFAULT, PNG_FILTER_TYPE_DEFAULT);
 
-    // Set title
-    if (title != NULL) {
-        png_text title_text;
-        title_text.compression = PNG_TEXT_COMPRESSION_NONE;
-        title_text.key = "Title";
-        title_text.text = title;
-        png_set_text(png_ptr, info_ptr, &title_text, 1);
-    }
-    
     // Set the resolution of the image to 720dpi
     png_set_pHYs(png_ptr, info_ptr, printerdpih/0.0254, printerdpiv/0.0254,
-        PNG_RESOLUTION_METER);  
+        PNG_RESOLUTION_METER);
 
     png_write_info(png_ptr, info_ptr);
-    
+
     // Allocate memory for a rows (3 bytes per pixel - 8 bit RGB)
-    row = (png_bytep) malloc(3 * width * sizeof(png_byte)); 
+    row = (png_bytep) malloc(3 * width * sizeof(png_byte));
     if (row == NULL) {
         fprintf(stderr, "Can't allocate memory for PNG file.\n");
         code = 0;
@@ -427,7 +545,7 @@ int write_png(const char *filename, int width, int height, char *rgb)
     }
 
     // Write image data - 8 bit RGB
-    int x, y, ppos, rowCount = 0;
+    int x, y, ppos;
     for (y=0 ; y<height ; y++) {
         ipos = width * y;
         ppos=0;
@@ -440,9 +558,9 @@ int write_png(const char *filename, int width, int height, char *rgb)
         png_write_row(png_ptr, row);
     }
     // End write
-    png_write_end(png_ptr, NULL);    
-    
-    
+    png_write_end(png_ptr, NULL);
+
+
 finalise:
     if (file != NULL) fclose(file);
     if (info_ptr != NULL) png_free_data(png_ptr, info_ptr, PNG_FREE_ALL, -1);
@@ -486,7 +604,7 @@ void putpixel(SDL_Surface * surface, int x, int y, Uint32 pixel)
     if (y > ydim) return;
     int bpp = surface->format->BytesPerPixel;
 
-    // Here p is the address to the pixel we want to set 
+    // Here p is the address to the pixel we want to set
     Uint8 *p = (Uint8 *) surface->pixels + y * surface->pitch + x * bpp;
 
     // Convert the otherwise black pixel to the desired colour
@@ -498,12 +616,12 @@ void putpixel(SDL_Surface * surface, int x, int y, Uint32 pixel)
             break;
         case 1:
             // Magenta
-            pixel = 0xFF00FF;
+            pixel = 0x00FF00FF;
             break;
         case 2:
             // Cyan
             pixel = 0x0000FFFF;
-            break;        
+            break;
         case 3:
             // Violet
             pixel = 0x00EE82EE;
@@ -524,9 +642,9 @@ void putpixel(SDL_Surface * surface, int x, int y, Uint32 pixel)
             // White
             pixel = 0x00FFFFFF;
             break;
-        }    
+        }
     }
-    
+
     // If existing pixel is 0x00FFFFFF (white), then we need to reset it to 0x00000000; before OR'ing the chosen colour
     switch (bpp) {
     case 1:
@@ -562,7 +680,7 @@ void putpixel(SDL_Surface * surface, int x, int y, Uint32 pixel)
     case 4:
         if (p[0] == 255 && p[1] == 255 && p[2] == 255 && p[3] == 255) {
             *(Uint32 *) p = pixel;
-        } else {        
+        } else {
             *(Uint32 *) p |= pixel;
         }
         break;
@@ -682,10 +800,10 @@ void _clear_seedRow(int seedrowColour) {
     seedrowEnd = seedrowStart + (pageSetWidth / 8);
     for (bytePointer = seedrowStart; bytePointer < seedrowEnd; bytePointer++) {
         seedrow[bytePointer]=0;
-    }    
+    }
 }
 
-void _print_seedRows(){
+void _print_seedRows(float hPixelWidth, float vPixelWidth){
     int store_colour, seedrowColour, bytePointer, seedrowStart, seedrowEnd;
     int byteOffset, bitOffset, xByte;
     unsigned char xd;
@@ -698,9 +816,9 @@ void _print_seedRows(){
         seedrowStart = (seedrowColour * pageSetWidth) /8;
         seedrowEnd = seedrowStart + (pageSetWidth / 8);
         bytePointer = seedrowStart + (xpos / 8);
-        bitOffset = 7 - (xpos & 8);                
+        bitOffset = 7 - (xpos - (8 * (xpos /8))); // No idea why bitOffset = 7 - (xpos & 8) seems to either be 7-8 or 7-0 (bug in gcc?)
         for (byteOffset = bytePointer; byteOffset < seedrowEnd; byteOffset++) {
-            xd = seedrow[byteOffset]; 
+            xd = seedrow[byteOffset];
             if (xd > 0) {
                 for (xByte = bitOffset; xByte >= 0; xByte--) {
                     if (isNthBitSet(xd,xByte)) {
@@ -718,10 +836,10 @@ void _print_seedRows(){
     printColour = store_colour;
 }
 
-void _print_incomingDataByte(int compressMode, unsigned char xd, int seedrowStart, int seedrowEnd) {
+void _print_incomingDataByte(int compressMode, unsigned char xd, int seedrowStart, int seedrowEnd, float hPixelWidth, float vPixelWidth) {
     int byteOffset, bitOffset, xByte;
     byteOffset = seedrowStart + (xpos / 8);
-    bitOffset = 7 - (xpos & 8);    
+    bitOffset = 7 - (xpos - (8 * (xpos /8))); // No idea why bitOffset = 7 - (xpos & 8) seems to either be 7-8 or 7-0 (bug in gcc?)
     if (xd == 0) {
         if (compressMode == 3) {
             // for ESC.3 Delta Row clear bits in seedrow for current colour
@@ -749,16 +867,16 @@ void _print_incomingDataByte(int compressMode, unsigned char xd, int seedrowStar
                     bitOffset = 7;
                 } else {
                     bitOffset--;
-                }                                
+                }
             }
             if (xd & 128) {
                 // Draw it on screen
                 putpixelbig(xpos, ypos, hPixelWidth, vPixelWidth);
             }
             xd = xd << 1;
-            xpos = xpos + hPixelWidth;
+            xpos = xpos + hPixelWidth;            
         }
-    }    
+    }
 }
 
 void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth) {
@@ -776,24 +894,24 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
     }
     existingColour = printColour;
     if (printColour > 4) printColour = 4; /// Colours are 0 = BLACK, 1 = MAGENTA, 2 = CYAN, 4 = YELLOW
-    
+
   tiff_delta_loop:
     seedrowColour = printColour;
     if (seedrowColour == 4) seedrowColour = 3; // Colours are 0,1,2 and 4
     seedrowStart = (seedrowColour * pageSetWidth) / 8;
     seedrowEnd = seedrowStart + (pageSetWidth / 8);
-    
+
     // timeout
     state = 0;
     while (state == 0) {
         state = read_byte_from_printer((char *) &xd);
         if (state == 0) goto raus_tiff_delta_print;
     }
-    
-    // Get command into nibbles 
+
+    // Get command into nibbles
     command = (unsigned char) xd >> 4;
     parameter = (unsigned char) xd & 0xF;
-    
+
     switch (command) {
     case 2:
         // XFER 0010 xxxx - parameter number of raster image data 0...15
@@ -812,35 +930,35 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
                         state = read_byte_from_printer((char *) &xd);  // byte to be printed
                         if (state == 0) goto raus_tiff_delta_print;
                     }
-                    _print_incomingDataByte(compressMode, xd, seedrowStart, seedrowEnd);
+                    _print_incomingDataByte(compressMode, xd, seedrowStart, seedrowEnd, hPixelWidth, vPixelWidth);
                     // SDL_UpdateRect(display, 0, 0, 0, 0);
                     opr++;
                 }
             } else {
                 // Repeat following byte twos complement (repeater)
                 repeater = (256 - repeater) + 1;
-                state = 0;               
+                state = 0;
                 while (state == 0) {
                     state = read_byte_from_printer((char *) &xd);  // byte to be printed
                     if (state == 0) goto raus_tiff_delta_print;
                 }
                 for (j = 0; j < repeater; j++) {
-                    _print_incomingDataByte(compressMode, xd, seedrowStart, seedrowEnd);
+                    _print_incomingDataByte(compressMode, xd, seedrowStart, seedrowEnd, hPixelWidth, vPixelWidth);
                     // SDL_UpdateRect(display, 0, 0, 0, 0);
                 }
                 opr++;
             }
-        }    
+        }
         break;
     case 3:
-        // XFER 0011 xxxx - parameter number of lookups to raster printer image data 1...2       
+        // XFER 0011 xxxx - parameter number of lookups to raster printer image data 1...2
         if (parameter == 1) {
             state = 0;
             while (state == 0) {
                 state = read_byte_from_printer((char *) &dataCount);
                 if (state == 0) goto raus_tiff_delta_print;
             }
-            counterValue = (int) dataCount;           
+            counterValue = (int) dataCount;
         } else {
             state = 0;
             while (state == 0) {
@@ -860,7 +978,7 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
                 state = read_byte_from_printer((char *) &repeater);  // number of times to repeat next byte
                 if (state == 0) goto raus_tiff_delta_print;
             }
-            repeatValue = (int) repeater;           
+            repeatValue = (int) repeater;
             if (repeatValue <= 127) {
                 repeatValue++;
                 // string of data byes to be printed
@@ -870,31 +988,31 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
                         state = read_byte_from_printer((char *) &xd);  // byte to be printed
                         if (state == 0) goto raus_tiff_delta_print;
                     }
-                    _print_incomingDataByte(compressMode, xd, seedrowStart, seedrowEnd);
+                    _print_incomingDataByte(compressMode, xd, seedrowStart, seedrowEnd, hPixelWidth, vPixelWidth);
                     // SDL_UpdateRect(display, 0, 0, 0, 0);
                     opr++;
                 }
             } else {
                 // Repeat following byte twos complement (repeater)
                 repeatValue = (256 - repeater) + 1;
-                state = 0;              
+                state = 0;
                 while (state == 0) {
                     state = read_byte_from_printer((char *) &xd);  // byte to be printed
                     if (state == 0) goto raus_tiff_delta_print;
                 }
                 for (j = 0; j < repeatValue; j++) {
-                    _print_incomingDataByte(compressMode, xd, seedrowStart, seedrowEnd);
+                    _print_incomingDataByte(compressMode, xd, seedrowStart, seedrowEnd, hPixelWidth, vPixelWidth);
                     // SDL_UpdateRect(display, 0, 0, 0, 0);
                 }
                 opr++;
             }
-        }    
-        break; 
+        }
+        break;
     case 4:
-        // MOVX 0100 xxxx - space to move -8 to 7        
+        // MOVX 0100 xxxx - space to move -8 to 7
         if (parameter > 7) parameter = 7 - parameter;
         thisDefaultUnit = defaultUnit;
-        if (defaultUnit == 0) thisDefaultUnit = printerdpiv / (float) 360; // Default for command is 1/360 inch units        
+        if (defaultUnit == 0) thisDefaultUnit = printerdpiv / (float) 360; // Default for command is 1/360 inch units
         xpos2 = xpos + (parameter * moveSize * (int) thisDefaultUnit);
         if (xpos2 >= marginleftp && xpos2 <= marginrightp) xpos = xpos2;
         break;
@@ -906,7 +1024,7 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
                 state = read_byte_from_printer((char *) &parameter);
                 if (state == 0) goto raus_tiff_delta_print;
             }
-            if (parameter > 127) parameter = 127 - parameter; 
+            if (parameter > 127) parameter = 127 - parameter;
         } else {
             state = 0;
             while (state == 0) {
@@ -926,24 +1044,24 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
         xpos2 = xpos + (parameter * moveSize * (int) thisDefaultUnit);
         if (xpos2 >= marginleftp && xpos2 <= marginrightp) xpos = xpos2;
         break;
-    case 6:  
+    case 6:
         // MOVY 0110 xxxx - space to move down 0 to 15 units
         // See ESC ( U command for unit
         thisDefaultUnit = defaultUnit;
         if (defaultUnit == 0) thisDefaultUnit = printerdpiv / (float) 360; // Default for command is 1/360 inch units
         ypos = ypos + (parameter * (int) thisDefaultUnit);
         test_for_new_paper();
-        if (compressMode == 3) _print_seedRows();
+        if (compressMode == 3) _print_seedRows(hPixelWidth, vPixelWidth);
         xpos = marginleftp;
         break;
-    case 7:  
+    case 7:
         // MOVY 0111 xxxx - space to move down X dots
         if (parameter == 1) {
             state = 0;
             while (state == 0) {
                 state = read_byte_from_printer((char *) &parameter);
                 if (state == 0) goto raus_tiff_delta_print;
-            } 
+            }
         } else {
             state = 0;
             while (state == 0) {
@@ -961,15 +1079,15 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
         if (defaultUnit == 0) thisDefaultUnit = printerdpiv / (float) 360; // Default for command is 1/360 inch units
         ypos = ypos + (parameter * (int) thisDefaultUnit);
         test_for_new_paper();
-        if (compressMode == 3) _print_seedRows();
+        if (compressMode == 3) _print_seedRows(hPixelWidth, vPixelWidth);
         xpos = marginleftp;
         break;
     case 8:
-        // COLR 1000 xxxx 
+        // COLR 1000 xxxx
         printColour = parameter;
         xpos = marginleftp;
         break;
-    case 14:   
+    case 14:
         switch (parameter) {
         case 1:
             // CLR 1110 0001
@@ -990,9 +1108,9 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
                     }
                 }
                 printColour = colour;
-                
+
                 // Copy all other seed data across to row on page
-                _print_seedRows();
+                _print_seedRows(hPixelWidth, vPixelWidth);
                 xpos = marginleftp;
             }
             break;
@@ -1003,7 +1121,7 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
         case 3:
             // EXIT 1110 0011
             xpos = marginleftp;
-            goto raus_tiff_delta_print; 
+            goto raus_tiff_delta_print;
             break;
         case 4:
             // MOVEXBYTE 1110 0100
@@ -1019,12 +1137,11 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
         break;
     }
     goto tiff_delta_loop;
-    
+
   raus_tiff_delta_print:
     printColour = existingColour;
     return;
 }
-
 
 void
 _8pin_line_bitmap_print(int dotColumns, float hPixelWidth, float vPixelWidth,
@@ -1043,15 +1160,17 @@ _8pin_line_bitmap_print(int dotColumns, float hPixelWidth, float vPixelWidth,
         }
 
         if ((dotColumns - opr) == 3) opr = opr; // SASCHA - what is this intended to do?
-        for (fByte = 0; fByte < 8; fByte++) {
-            if (xd & 128) {
-                if ((adjacentDot == 0) && (precedingDot(xpos, ypos + fByte * vPixelWidth) == 1)) {
-                    // Miss out second of two consecutive horizontal dots
-                } else {
-                    putpixelbig(xpos, ypos + fByte * vPixelWidth, hPixelWidth, vPixelWidth);
+        if (xd) {
+            for (fByte = 0; fByte < 8; fByte++) {
+                if (xd & 128) {
+                    if ((adjacentDot == 0) && (precedingDot(xpos, ypos + fByte * vPixelWidth) == 1)) {
+                        // Miss out second of two consecutive horizontal dots
+                    } else {
+                        putpixelbig(xpos, ypos + fByte * vPixelWidth, hPixelWidth, vPixelWidth);
+                    }
                 }
-            } 
-            xd = xd << 1;
+                xd = xd << 1;
+            }
         }
         xpos = xpos + hPixelWidth;
     }
@@ -1081,7 +1200,7 @@ _9pin_line_bitmap_print(int dotColumns, float hPixelWidth, float vPixelWidth,
                     } else {
                         putpixelbig(xpos, ypos + xByte * vPixelWidth, hPixelWidth, vPixelWidth);
                     }
-                }            
+                }
                 xd = xd << 1;
             }
         }
@@ -1097,7 +1216,7 @@ _9pin_line_bitmap_print(int dotColumns, float hPixelWidth, float vPixelWidth,
             } else {
                 putpixelbig(xpos, ypos + 9 * vPixelWidth, hPixelWidth, vPixelWidth);
             }
-        }         
+        }
         xpos = xpos + hPixelWidth;
         // SDL_UpdateRect(display, 0, 0, 0, 0);
     }
@@ -1131,7 +1250,7 @@ _24pin_line_bitmap_print(int dotColumns, float hPixelWidth, float vPixelWidth,
                         } else {
                             putpixelbig(xpos, ypos2 + xByte * vPixelWidth, hPixelWidth, vPixelWidth);
                         }
-                    }                 
+                    }
                     xd = xd << 1;
                 }
             }
@@ -1201,7 +1320,7 @@ _line_raster_print(int bandHeight, int dotColumns, float hPixelWidth, float vPix
                     repeater++;
                     // string of data byes to be printed
                     for (j = 0; j < repeater; j++) {
-                        state = 0;                
+                        state = 0;
                         while (state == 0) {
                             state = read_byte_from_printer((char *) &xd);  // byte to be printed
                             if (state == 0) goto raus_rasterp;
@@ -1212,16 +1331,16 @@ _line_raster_print(int bandHeight, int dotColumns, float hPixelWidth, float vPix
                                 xd = xd << 1;
                                 xpos = xpos + hPixelWidth;
                             }
-                            opr++;
                         } else {
                             xpos = xpos + (hPixelWidth * 8);
                         }
+                        opr++;
                         // SDL_UpdateRect(display, 0, 0, 0, 0);
                     }
                 } else {
                     // Repeat following byte twos complement (repeater)
                     repeater = (256 - repeater) + 1;
-                    state = 0;              
+                    state = 0;
                     while (state == 0) {
                         state = read_byte_from_printer((char *) &xd);  // byte to be printed
                         if (state == 0) goto raus_rasterp;
@@ -1240,8 +1359,8 @@ _line_raster_print(int bandHeight, int dotColumns, float hPixelWidth, float vPix
                     }
                     opr++;
                 }
-            }        
-        } else {    
+            }
+        } else {
             for (opr = 0; opr < dotColumns; opr++) {
                 state = 0;
                 while (state == 0) {
@@ -1288,7 +1407,7 @@ void bitimage_graphics(int mode, int dotColumns) {
         _8pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 0);
         break;
     case 3:
-        // 240 x 60 dpi 9 needles - not adjacent dot printing 
+        // 240 x 60 dpi 9 needles - not adjacent dot printing
         needles = 9;
         hPixelWidth = printerdpih / (float) 240;
         vPixelWidth = printerdpiv / (float) 60;  // ESCP2 definition - ESCP was 72 dpi
@@ -1321,84 +1440,84 @@ void bitimage_graphics(int mode, int dotColumns) {
     case 32:  // 60 x 180 dpi, 24 dots per column - row = 3 bytes
         needles = 24;
         hPixelWidth = printerdpih / (float) 60;
-        vPixelWidth = printerdpiv / (float) 180;  // Das sind hier 1.2 
+        vPixelWidth = printerdpiv / (float) 180;  // Das sind hier 1.2
         // Pixels
         _24pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
         break;
     case 33:  // 120 x 180 dpi, 24 dots per column - row = 3 bytes
         needles = 24;
         hPixelWidth = printerdpih / (float) 120;
-        vPixelWidth = printerdpiv / (float) 180;  // Das sind hier 1.2 
+        vPixelWidth = printerdpiv / (float) 180;  // Das sind hier 1.2
         // Pixels
         _24pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
         break;
     case 35:  // Resolution not verified possibly 240x216 sein
         needles = 24;
         hPixelWidth = printerdpih / (float) 240;
-        vPixelWidth = printerdpiv / (float) 180;  // Das sind hier 1.2 
+        vPixelWidth = printerdpiv / (float) 180;  // Das sind hier 1.2
         // Pixels
         _24pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
         break;
     case 38:  // 90 x 180 dpi, 24 dots per column - row = 3 bytes
         needles = 24;
         hPixelWidth = printerdpih / (float) 90;
-        vPixelWidth = printerdpiv / (float) 180;  // Das sind hier 1.2 
+        vPixelWidth = printerdpiv / (float) 180;  // Das sind hier 1.2
         // Pixels
         _24pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
         break;
     case 39:  // 180 x 180 dpi, 24 dots per column - row = 3 bytes
         needles = 24;
         hPixelWidth = printerdpih / (float) 180;
-        vPixelWidth = printerdpiv / (float) 180;  // Das sind hier 1.2 
+        vPixelWidth = printerdpiv / (float) 180;  // Das sind hier 1.2
         // Pixels
         _24pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
         break;
     case 40:  // 360 x 180 dpi, 24 dots per column - row = 3 bytes - not adjacent dot
         needles = 24;
         hPixelWidth = printerdpih / (float) 360;
-        vPixelWidth = printerdpiv / (float) 180;  // Das sind hier 1.2 
+        vPixelWidth = printerdpiv / (float) 180;  // Das sind hier 1.2
         // Pixels
         _24pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 0);
         break;
     case 64:  // 60 x 60 dpi, 48 dots per column - row = 6 bytes
         needles = 48;
         hPixelWidth = printerdpih / (float) 60;
-        vPixelWidth = printerdpiv / (float) 60;  // Das sind hier 1.2 
+        vPixelWidth = printerdpiv / (float) 60;  // Das sind hier 1.2
         // Pixels
         _48pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
         break;
     case 65:  // 120 x 120 dpi, 48 dots per column - row = 6 bytes
         needles = 48;
         hPixelWidth = printerdpih / (float) 120;
-        vPixelWidth = printerdpiv / (float) 120;  // Das sind hier 1.2 
+        vPixelWidth = printerdpiv / (float) 120;  // Das sind hier 1.2
         // Pixels
         _48pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
         break;
     case 70:  // 90 x 180 dpi, 48 dots per column - row = 6 bytes
         needles = 48;
         hPixelWidth = printerdpih / (float) 90;
-        vPixelWidth = printerdpiv / (float) 180;  // Das sind hier 1.2 
+        vPixelWidth = printerdpiv / (float) 180;  // Das sind hier 1.2
         // Pixels
         _48pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
         break;
     case 71:  // 180 x 360 dpi, 48 dots per column - row = 6 bytes
         needles = 48;
         hPixelWidth = printerdpih / (float) 180;
-        vPixelWidth = printerdpiv / (float) 360;  // Das sind hier 1.2 
+        vPixelWidth = printerdpiv / (float) 360;  // Das sind hier 1.2
         // Pixels
         _48pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
         break;
     case 72:  // 360 x 360 dpi, 48 dots per column - row = 6 bytes - no adjacent dot printing
         needles = 48;
         hPixelWidth = printerdpih / (float) 360;
-        vPixelWidth = printerdpiv / (float) 360;  // Das sind hier 1.2 
+        vPixelWidth = printerdpiv / (float) 360;  // Das sind hier 1.2
         // Pixels
         _48pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 0);
         break;
     case 73:  // 360 x 360 dpi, 48 dots per column - row = 6 bytes
         needles = 48;
         hPixelWidth = printerdpih / (float) 360;
-        vPixelWidth = printerdpiv / (float) 360;  // Das sind hier 1.2 
+        vPixelWidth = printerdpiv / (float) 360;  // Das sind hier 1.2
         // Pixels
         _48pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
         break;
@@ -1443,10 +1562,10 @@ int printcharx(unsigned char chr)
     hPixelWidth = printerdpih / (float) cdpih;
     vPixelWidth = printerdpiv / (float) cdpiv;
     character_spacing = 0;
-    
+
     // Take into account the expected size of the font for a 24 pin printer:
     // Font size is 8 x 16:
-    
+
     if (letterQuality == 1) {
         // LETTER QUALITY 360 x 144 dpi
         // -- uses (360 / cpi) x 24 pixel font - default is 10 cpi (36 dots), 12 cpi (10 dots), 15 cpi (24 dots)
@@ -1460,8 +1579,8 @@ int printcharx(unsigned char chr)
         fontDotHeight = (float) vPixelWidth * ((float) charHeight / (float) 16);
         if (chrSpacing > 0) character_spacing = printerdpih * ((float) chrSpacing / (float) 120);
     }
-    
-    // eigentlich sollte 
+
+    // eigentlich sollte
     // das 16 sein da
     // jedes zeichen 16
     // Pixel gro?ist,
@@ -1473,14 +1592,14 @@ int printcharx(unsigned char chr)
         boldoffset = (float) (hPixelWidth + vPixelWidth) / (float) 3;
         boldoffset11=boldoffset;
         //printf("%d\n", boldoffset);
-    } 
+    }
     if (italic==1) {
         italiccount=1;
     }
     test_for_new_paper();
-    
+
     // SUPERSCRIPT / SUBSCRIPT 360 x 144 dpi
-    // -- uses (360 / cpi) x 16 pixel font - default is 10 cpi (36 dots), 12 cpi (30 dots), 15 cpi (24 dots)    
+    // -- uses (360 / cpi) x 16 pixel font - default is 10 cpi (36 dots), 12 cpi (30 dots), 15 cpi (24 dots)
     // NOTE : if point size = 8, then subscript/superscript are also 8 point (8/72 inches)
     // character width for proportional fonts is different to full size proportional font.
     // TO BE WRITTEN
@@ -1489,27 +1608,27 @@ int printcharx(unsigned char chr)
             // Use nearest to 2/3
             divisor=2.0/3.0;
             vPixelWidth=vPixelWidth*divisor;
-            yposoffset=2;            
+            yposoffset=2;
         } else {
             fontDotWidth = (float) hPixelWidth * (((float) 360 / (float) cpi) / (float) 8);
             fontDotHeight = vPixelWidth;
             yposoffset=2;
         }
-    } else if (subscript==1) { 
+    } else if (subscript==1) {
         if (multipoint_mode == 1) {
             // Use nearest to 2/3
             divisor=2.0/3.0;
             vPixelWidth=vPixelWidth*divisor;
-            yposoffset=8;            
-        } else {        
+            yposoffset=8;
+        } else {
             fontDotHeight = vPixelWidth;
             yposoffset=8;
         }
     }
-    
+
     hPixelWidth = fontDotWidth;
     vPixelWidth = fontDotHeight;
-    
+
     if ((double_width == 1) || (double_width_single_line == 1)) {
         hPixelWidth = hPixelWidth * 2;
         character_spacing = character_spacing * 2;
@@ -1529,7 +1648,7 @@ int printcharx(unsigned char chr)
             vPixelWidth = vPixelWidth * 4;
             yposoffset = yposoffset - (charHeight * 3 * vPixelWidth); // Height of one character at quad height = 4 x 24
         }
-    }     
+    }
 
     if (direction_of_char == 1) {
         for (i = 0; i <= 15; i++) {
@@ -1603,7 +1722,7 @@ int printcharx(unsigned char chr)
                                     character_spacing + boldoffset, vPixelWidth + boldoffset11);
                 }
             }
-            
+
         } else {
             xpos = xpos + character_spacing;
         }
@@ -1618,12 +1737,12 @@ int print_space(int showUnderline)
     int charHeight = 24; // 24 pin printer - characters 24 pixels high
     float fontDotWidth, fontDotHeight, character_spacing;
     int boldoffset = 0;
-    int boldoffset11= 0;     
+    int boldoffset11= 0;
 
     hPixelWidth = printerdpih / (float) cdpih;
     vPixelWidth = printerdpiv / (float) cdpiv;
     character_spacing = 0;
-    
+
     // Take into account the expected size of the font for a 24 pin printer:
     // Font size is 8 x 16:
     boldoffset11=0;
@@ -1632,7 +1751,7 @@ int print_space(int showUnderline)
         boldoffset = (float) (hPixelWidth + vPixelWidth) / (float) 3;
         boldoffset11=boldoffset;
         //printf("%d\n", boldoffset);
-    }     
+    }
     if (letterQuality == 1) {
         // LETTER QUALITY 360 x 144 dpi
         // -- uses (360 / cpi) x 24 pixel font - default is 10 cpi (36 dots), 12 cpi (10 dots), 15 cpi (24 dots)
@@ -1646,16 +1765,16 @@ int print_space(int showUnderline)
         fontDotHeight = (float) vPixelWidth * (float) charHeight / (float) 16;
         if (chrSpacing > 0) character_spacing = printerdpih * ((float) chrSpacing / (float) 180);
     }
-    
+
     test_for_new_paper();
-        
+
     hPixelWidth = fontDotWidth;
     vPixelWidth = fontDotHeight;
-    
+
     if ((double_width == 1) || (double_width_single_line == 1)) {
         hPixelWidth = hPixelWidth * 2;
         character_spacing = character_spacing * 2;
-    }    
+    }
 
     // Because we are only printing spaces - we can ignore it if there is no underlining
     if ((showUnderline==1) && ((underlined>0) || (strikethrough>0) || (overscore>0))) {
@@ -1675,7 +1794,7 @@ int print_space(int showUnderline)
 
             if (xd > 0) {
                 putpixelbig(xpos + fByte * hPixelWidth, ypos + yposoffset + i * vPixelWidth,
-                                hPixelWidth * 8, vPixelWidth);
+                                hPixelWidth * 8 + boldoffset, vPixelWidth + boldoffset11);
             }
         }
     }
@@ -1704,7 +1823,7 @@ int print_space(int showUnderline)
                                     character_spacing + boldoffset, vPixelWidth + boldoffset11);
                 }
             }
-            
+
         } else {
             xpos = xpos + character_spacing;
         }
@@ -1713,7 +1832,7 @@ int print_space(int showUnderline)
 
 void print_character(unsigned char xChar)
 {
-    printcharx(xChar);  
+    printcharx(xChar);
     countcharz++;
     if (countcharz > 20) {
         if (sdlon) SDL_UpdateRect(display, 0, 0, 0, 0);
@@ -1724,7 +1843,7 @@ void print_character(unsigned char xChar)
     if (xpos > ((pageSetWidth - 1) - hPixelWidth * 8)) {
         xpos = marginleftp;
         ypos = ypos + line_spacing;
-    } 
+    }
 }
 
 void cpulimit()
@@ -1738,7 +1857,7 @@ void cpulimit()
 void mountusb(char *path)
 {
     if (0==strcmp(path,"/usbstick'")) {
-        system("mkdir /usbstick 2>>/dev/null; mount /dev/sda1 /usbstick 2>>/dev/null &");    
+        system("mkdir /usbstick 2>>/dev/null; mount /dev/sda1 /usbstick 2>>/dev/null &");
     }
 
     strcpy(pathcreator, "mkdir ");
@@ -1772,7 +1891,7 @@ void makeallpaths()
         system(x);
     } else if (rawiseps==1) {
         sprintf(x,"mkdir %s 2>>/dev/null",patheps);
-        system(x);    
+        system(x);
     }
 }
 
@@ -1791,12 +1910,12 @@ char* lowerCaseWord(char* a)
 int convertUnixWinMac(char * source,char * destination)
 {
     FILE * sourceFile, * destinationFile;
-    
-    int bytex,bytex1=0,bytex2=0; 
+
+    int bytex,bytex1=0,bytex2=0;
 
     sourceFile      = fopen(source,"r");
     destinationFile = fopen(destination,"w");
-    
+
     if (NULL==sourceFile) {
       printf("Could not open raw file for reading ---> %s\n",source);
       return -1;
@@ -1808,7 +1927,7 @@ int convertUnixWinMac(char * source,char * destination)
     bytex=fgetc(sourceFile);
     while (bytex!=EOF) {
         if (outputFormatText==1) {
-            //unix format 
+            //unix format
             if ((bytex1==10) && (bytex==10)) {
                bytex1=0;
                goto nowrite;
@@ -1853,16 +1972,16 @@ int convertUnixWinMac(char * source,char * destination)
                goto fini;
             } else if (bytex==13) {
                 bytex1=13;
-            }    
+            }
         }
-fini:        
+fini:
         fputc(bytex,destinationFile);
         if (bytex2!=0) {
             fputc(bytex2,destinationFile);
             bytex2=0;
         }
-        
-nowrite:        
+
+nowrite:
         bytex=fgetc(sourceFile);
     }
     fclose(destinationFile);
@@ -1878,7 +1997,7 @@ int main(int argc, char *args[])
     int xposold;
     int i, j, countcharz = 0;
     char *config;
-    FILE *FL; 
+    FILE *FL;
 
     cpulimit();
     if (argc < 5) {
@@ -1930,9 +2049,9 @@ int main(int argc, char *args[])
                 }
             }
         }
-        
+
         // End of Line Conversions
-        if (rawiseps == 1) {  // only convert if the format is epson! 
+        if (rawiseps == 1) {  // only convert if the format is epson!
             if (strcmp(param,"unix") == 0) {
                 outputFormatText=1;
                 printf("Unix-mode on (LF).\n");
@@ -1959,10 +2078,10 @@ int main(int argc, char *args[])
                         outputFormatText=3;
                         printf("MAC-mode on (CR).\n");
                     }
-                }            
+                }
             }
         }
-        
+
         if (strncmp(param, "t1=", 3) == 0) t1 = atoi(&args[i][3]);
         if (strncmp(param, "t2=", 3) == 0) t2 = atoi(&args[i][3]);
         if (strncmp(param, "t3=", 3) == 0) t3 = atoi(&args[i][3]);
@@ -1986,9 +2105,9 @@ int main(int argc, char *args[])
             ackposition=4;
         }
     }
-    
+
     printf("delays around ack: t1=%d    t2=%d    t3=%d    t4=%d    t5=%d\n",t1,t2,t3,t4,t5);
-    
+
     // Grab the path offset
     strcpy(path, args[6]);
 
@@ -1998,7 +2117,7 @@ int main(int argc, char *args[])
             FL=fopen(PATH_CONFIG, "r");
             fscanf(FL, "%s", path);
             fclose(FL);
-        }        
+        }
     }
     if (path[strlen(path) - 1] != '/') {
         strcat(path, "/");
@@ -2052,19 +2171,19 @@ int main(int argc, char *args[])
     xdim = pageSetWidth / divi;
     ydim = pageSetHeight / divi;
     if (sdlon) {
-        display = SDL_SetVideoMode(xdim, ydim, 24, SDL_HWSURFACE);      
+        display = SDL_SetVideoMode(xdim, ydim, 24, SDL_HWSURFACE);
         if (display == NULL) {
             printf("Error on SDL display mode setting\n");
             exit(1);
         }
         // Set the title bar
         SDL_WM_SetCaption("Printer Output", "Printer Output");
-            
+
         // SDL_UpdateRect (display, 0, 0, 0, 0);
         erasesdl();
         SDL_UpdateRect(display, 0, 0, 0, 0);
     }
-    
+
 main_loop_for_printing:
     mountusb(path);
     xpos = marginleftp;
@@ -2081,7 +2200,7 @@ main_loop_for_printing:
     // ASCII Branch
     while (state != 0) {
         // read next char
-        state = read_byte_from_printer((char *) &xd);        
+        state = read_byte_from_printer((char *) &xd);
         if (state == 0) {
             if (timeout > 0)
             sleep(timeout - 1);
@@ -2097,13 +2216,13 @@ main_loop_for_printing:
         } else if (graphics_mode ==1) {
             // Epson ESC/P2 graphics mode - limited commands:
             switch (xd) {
-            case 10:    // lf (0x0a)              
+            case 10:    // lf (0x0a)
                 ypos = ypos + line_spacing;
                 xpos = marginleftp;
                 double_width_single_line = 0;
                 test_for_new_paper();
                 break;
-            case 12:    // form feed (neues blatt) 
+            case 12:    // form feed (neues blatt)
                 ypos = pageSetHeight + 1;  // just put it in an out of area position
                 test_for_new_paper();
                 i = 0;
@@ -2113,7 +2232,7 @@ main_loop_for_printing:
                 xpos = marginleftp;
                 break;
             case 27:    // ESC Escape (do nothing, will be processed later in this code)
-                break;                    
+                break;
             }
             // ESc Branch for graphics mode
             if (xd == (int) 27) {   // ESC v 27 v 1b
@@ -2127,7 +2246,7 @@ main_loop_for_printing:
                     hmi                    = printerdpih * ((float) 36 / (float) 360); // Reset HMI
                     line_spacing           = printerdpiv * ((float) 1 / (float) 6); // normally 1/6 inch line spacing
                     chrSpacing             =   0;
-                    dpih                   = 240; 
+                    dpih                   = 240;
                     dpiv                   = 216;
                     letterQuality          =   0;
                     proportionalSpacing    =   0;
@@ -2150,9 +2269,9 @@ main_loop_for_printing:
                     graphics_mode          =   0;
                     microweave_printing    =   0;
                     vTabulatorsSet         =   0;
-                    vTabulatorsCancelled   =   0;                    
-                    break;                       
-                case '.':    
+                    vTabulatorsCancelled   =   0;
+                    break;
+                case '.':
                     // Raster printing ESC . c v h m nL nH d1 d2 . . . dk print bit-image graphics.
                     state = read_byte_from_printer((char *) &c);
                     if (state == 0) break;
@@ -2166,17 +2285,17 @@ main_loop_for_printing:
                     if (state == 0) break;
                     state = read_byte_from_printer((char *) &nH);
                     if (state == 0) break;
-                    
+
                     switch (v) {
                         case 5:
                             vPixelWidth = printerdpiv / (float) 720;
                             break;
                         case 10:
                             vPixelWidth = printerdpiv / (float) 360;
-                            break;                                
+                            break;
                         case 20:
                             vPixelWidth = printerdpiv / (float) 180;
-                            break;                                
+                            break;
                     }
                     switch (h) {
                         case 5:
@@ -2184,14 +2303,14 @@ main_loop_for_printing:
                             break;
                         case 10:
                             hPixelWidth = printerdpih / (float) 360;
-                            break;                                
+                            break;
                         case 20:
                             hPixelWidth = printerdpih / (float) 180;
-                            break;                                
+                            break;
                     }
                     dotColumns = nH << 8;
-                    dotColumns = dotColumns | nL;                        
-                    if ( microweave_printing == 1 ) m = 1; 
+                    dotColumns = dotColumns | nL;
+                    if ( microweave_printing == 1 ) m = 1;
                     switch (c) {
                     case 0:
                         // Normal graphics - non-compressed
@@ -2212,19 +2331,19 @@ main_loop_for_printing:
                     break;
                 case '+':    // Set n/360-inch line spacing ESC + n
                     state = read_byte_from_printer((char *) &xd);
-                    line_spacing = printerdpiv * ((float) xd / (float) 360);                   
-                    break; 
-                case '(':    
+                    line_spacing = printerdpiv * ((float) xd / (float) 360);
+                    break;
+                case '(':
                     state = read_byte_from_printer((char *) &nL);
                     switch (nL) {
-                    case 'C': 
+                    case 'C':
                         // 27 40 67 nL nH mL mH Set page length in defined unit
                         // page size not implemented yet
                         state = read_byte_from_printer((char *) &nL); // always 2
                         if (state == 0) break;
                         state = read_byte_from_printer((char *) &nH); // always 0
                         if (state == 0) break;
-                        state = read_byte_from_printer((char *) &mL); 
+                        state = read_byte_from_printer((char *) &mL);
                         if (state == 0) break;
                         state = read_byte_from_printer((char *) &mH);
                         thisDefaultUnit = defaultUnit;
@@ -2239,17 +2358,17 @@ main_loop_for_printing:
                         marginbottomp = defaultMarginBottomp;
                         ypos = margintopp;
                         break;
-                    case 'c': 
+                    case 'c':
                         // 27 40 67 nL nH tL tH bL bH Set page format
-                        state = read_byte_from_printer((char *) &nL); // always 4 
+                        state = read_byte_from_printer((char *) &nL); // always 4
                         if (state == 0) break;
                         state = read_byte_from_printer((char *) &nH); // always 0
                         if (state == 0) break;
-                        state = read_byte_from_printer((char *) &tL); 
+                        state = read_byte_from_printer((char *) &tL);
                         if (state == 0) break;
-                        state = read_byte_from_printer((char *) &tH); 
+                        state = read_byte_from_printer((char *) &tH);
                         if (state == 0) break;
-                        state = read_byte_from_printer((char *) &bL); 
+                        state = read_byte_from_printer((char *) &bL);
                         if (state == 0) break;
                         state = read_byte_from_printer((char *) &bH);
                         thisDefaultUnit = defaultUnit;
@@ -2258,15 +2377,15 @@ main_loop_for_printing:
                         marginbottomp = ((bH * 256) + bL) * (int) thisDefaultUnit;
                         if (marginbottomp > 22 * printerdpih) marginbottomp = 22 * printerdpih; // Max 22 inches
                         ypos = margintopp;
-                        // cancel top and bottom margins (margintopp and marginbottomp - to be implemented)                            
+                        // cancel top and bottom margins (margintopp and marginbottomp - to be implemented)
                         break;
-                    case 'V': 
+                    case 'V':
                         // 27 40 86 nL nH mL mH Set absolute vertical print position
-                        state = read_byte_from_printer((char *) &nL); // Always 2 
+                        state = read_byte_from_printer((char *) &nL); // Always 2
                         if (state == 0) break;
                         state = read_byte_from_printer((char *) &nH); // Always 0
                         if (state == 0) break;
-                        state = read_byte_from_printer((char *) &mL); 
+                        state = read_byte_from_printer((char *) &mL);
                         if (state == 0) break;
                         state = read_byte_from_printer((char *) &mH);
                         thisDefaultUnit = defaultUnit;
@@ -2274,20 +2393,20 @@ main_loop_for_printing:
                         ypos2 = margintopp + ((mH * 256) + mL) * (int) thisDefaultUnit;
                         // Ignore if movement is more than 179/360" upwards
                         if (ypos2 < (ypos - (printerdpiv * ((float) 179/(float) 360))) ) ypos2 = ypos;
-                        // Ignore if command would move upwards after graphics command sent on current line, or above where graphics have 
+                        // Ignore if command would move upwards after graphics command sent on current line, or above where graphics have
                         // previously been printed - to be written.
                         ypos = ypos2;
                         test_for_new_paper();
                         break;
-                    case 'v': 
+                    case 'v':
                         // 27 40 118 nL nH mL mH Set relative vertical print position
-                        state = read_byte_from_printer((char *) &nL); // Always 2 
+                        state = read_byte_from_printer((char *) &nL); // Always 2
                         if (state == 0) break;
                         state = read_byte_from_printer((char *) &nH); // Always 0
                         if (state == 0) break;
-                        state = read_byte_from_printer((char *) &mL); 
+                        state = read_byte_from_printer((char *) &mL);
                         if (state == 0) break;
-                        state = read_byte_from_printer((char *) &mH); 
+                        state = read_byte_from_printer((char *) &mH);
                         thisDefaultUnit = defaultUnit;
                         if (defaultUnit == 0) thisDefaultUnit = printerdpiv / (float) 360; // Default for command is 1/360 inch units
                         if (mH > 127) {
@@ -2296,8 +2415,8 @@ main_loop_for_printing:
                         }
                         ypos2 = ypos + ((mH * 256) + mL) * (int) thisDefaultUnit;
                         // Ignore if movement is more than 179/360" upwards
-                        if (ypos2 < (ypos - (printerdpiv * ((float) 179/(float) 360))) ) ypos2 = ypos;                        
-                        // ignore if command would move upwards after graphics command sent on current line, or above where graphics have 
+                        if (ypos2 < (ypos - (printerdpiv * ((float) 179/(float) 360))) ) ypos2 = ypos;
+                        // ignore if command would move upwards after graphics command sent on current line, or above where graphics have
                         // previously been printed - to be written
                         if (ypos2 < margintopp) {
                             // No action
@@ -2306,16 +2425,16 @@ main_loop_for_printing:
                             test_for_new_paper();
                         }
                         break;
-                    case 'U': 
+                    case 'U':
                         // 27 40 85 nL nH m Set unit
-                        state = read_byte_from_printer((char *) &nL); // Always 1 
+                        state = read_byte_from_printer((char *) &nL); // Always 1
                         if (state == 0) break;
-                        state = read_byte_from_printer((char *) &nH); // Always 0 
+                        state = read_byte_from_printer((char *) &nH); // Always 0
                         if (state == 0) break;
                         state = read_byte_from_printer((char *) &m);
                         defaultUnit = ((float) m / (float) 3600) * printerdpiv; // set default unit to m/3600 inches
                         break;
-                    case 'i': 
+                    case 'i':
                         // ESC ( i 01 00 n  Select microweave print mode
                         state = read_byte_from_printer((char *) &nL);
                         if (state == 0) break;
@@ -2341,7 +2460,7 @@ main_loop_for_printing:
                         // No action
                     } else {
                         xpos = xpos2;
-                    }                        
+                    }
                     break;
                 case 92:   // Set relative horizonal print position ESC \ nL nH
                     state = read_byte_from_printer((char *) &nL); // always 2
@@ -2367,8 +2486,8 @@ main_loop_for_printing:
                         xpos = xpos2;
                     }
                     break;
-                case 'r':   
-                    // ESC r n Set printing colour (n=0-7) 
+                case 'r':
+                    // ESC r n Set printing colour (n=0-7)
                     // (Black, Magenta, Cyan, Violet, Yellow, Red, Green, White)
                     state = read_byte_from_printer((char *) &printColour);
                     break;
@@ -2377,7 +2496,7 @@ main_loop_for_printing:
                     break;
                 }
             }
-            
+
         } else if ((print_uppercontrolcodes==1) && (xd >= (int) 128) && (xd <= (int) 159)) {
             print_character(xd);
         } else {
@@ -2403,12 +2522,12 @@ main_loop_for_printing:
             case 7:    // BEL do nothing
                 if (print_controlcodes) {
                     print_character(xd);
-                }                
+                }
                 break;
             case 8:    // BS (BackSpace)
                 if (print_controlcodes) {
                     print_character(xd);
-                } else {                
+                } else {
                     xposold = xpos;
                     hPixelWidth = printerdpih / (float) cdpih;
                     if (letterQuality == 1) {
@@ -2428,7 +2547,7 @@ main_loop_for_printing:
                     for (i = 0; i < 32; i++) {
                         if (marginleftp + hTabulators[i] <= xpos) curHtab = i;
                     }
-                    curHtab++;                    
+                    curHtab++;
                     if (curHtab > 31 || hTabulators[curHtab] == 0) {
                         // No more tab marks
                     } else if (hTabulators[curHtab] > 0 && hTabulators[curHtab] <= marginrightp) {
@@ -2440,7 +2559,7 @@ main_loop_for_printing:
             case 10:    // lf (0x0a)
                 if (print_controlcodes) {
                     print_character(xd);
-                } else {                
+                } else {
                     // 01.01.2014 forward 31/216 inches this may be wrong or adapted .....
                     // 27.09.2014 maybe next line is to shift down 8/72 inches to begin a new line
                     // to avoid overwritings if needles are having 72dpi mechanical resolution
@@ -2451,7 +2570,7 @@ main_loop_for_printing:
                     // 07.01.2015 wieder auf 24 gesetzt da hier die besten ergebnisse (was
                     // an der alten formel falschist I dunno)
                     // changed from 24 to 30 20.09.2015
-                    // Those are 8 Pixels forward concerning the printheads 72dpi resolution. 
+                    // Those are 8 Pixels forward concerning the printheads 72dpi resolution.
                     // Cause the mechanics has a resolution of 216 dpi (which is 3 times
                     // higher) 8x3=24 steps/pixels has to be done
                     ypos = ypos + line_spacing;
@@ -2483,7 +2602,7 @@ main_loop_for_printing:
                             ypos = pageSetHeight + 1;  // just put it in an out of area position
                             test_for_new_paper();
                             i = 0;
-                            double_width_single_line = 0;                                
+                            double_width_single_line = 0;
                         } else {
                             // LF
                             curVtab = 0; // No more tab marks
@@ -2504,10 +2623,10 @@ main_loop_for_printing:
                     }
                 }
                 break;
-            case 12:    // form feed (neues blatt) 
+            case 12:    // form feed (neues blatt)
                 if (print_controlcodes) {
                     print_character(xd);
-                } else {                
+                } else {
                     ypos = pageSetHeight + 1;  // just put it in an out of area position
                     test_for_new_paper();
                     i = 0;
@@ -2517,7 +2636,7 @@ main_loop_for_printing:
             case 13:    // cr (0x0d)
                 if (print_controlcodes) {
                     print_character(xd);
-                } else {                
+                } else {
                     xpos = marginleftp;
                 }
                 break;
@@ -2534,7 +2653,7 @@ main_loop_for_printing:
                     print_character(xd);
                 } else {
                     hmi = printerdpih * ((float) 36 / (float) 360); // Reset HMI
-                    if (multipoint_mode == 0) {                
+                    if (multipoint_mode == 0) {
                         if (pitch==10) cpi=17.14;
                         if (pitch==12) cpi=20;
                         // Add for proportional font = 1/2 width - to be written
@@ -2549,31 +2668,31 @@ main_loop_for_printing:
                 // other device control function.
                 if (print_controlcodes) {
                     print_character(xd);
-                }                    
+                }
                 break;
             case 18:    // DC2 (Device Control 2) Condensed printing off, see 15
                 if (print_controlcodes) {
                     print_character(xd);
-                } else {                
+                } else {
                     hmi = printerdpih * ((float) 36 / (float) 360); // Reset HMI
                     if (pitch==10) cpi=10;
                     if (pitch==12) cpi=12;
                     // Add for proportional font = full width
                 }
                 break;
-            case 19:    // DC3 (Device Control 3)                
-                // Intended for turning off or stopping an ancillary device. It may be a 
-                // secondary level stop such as wait, pause, 
+            case 19:    // DC3 (Device Control 3)
+                // Intended for turning off or stopping an ancillary device. It may be a
+                // secondary level stop such as wait, pause,
                 // stand-by or halt (restored via DC1). Can also perform any other
                 // device control function.
                 if (print_controlcodes) {
                     print_character(xd);
-                }                    
+                }
                 break;
             case 20:    // DC4 (Device Control 4)
                 if (print_controlcodes) {
                     print_character(xd);
-                } else {                
+                } else {
                     // Intended to turn off, stop or interrupt an ancillary device, or for
                     // any other device control function.
                     // Also turns off double-width printing for one line
@@ -2598,14 +2717,14 @@ main_loop_for_printing:
             case 25:    // EM End Of Medium (do nothing)
                 if (print_controlcodes) {
                     print_character(xd);
-                }                
+                }
                 break;
             case 26:    // SUB Substitute (do nothing)
                 break;
             case 27:    // ESC Escape (do nothing, will be processed later in this code)
                 if (print_controlcodes) {
                     print_character(xd);
-                }                
+                }
                 break;
             case 28:    // FS File Separator (do nothing)
                 break;
@@ -2622,7 +2741,7 @@ main_loop_for_printing:
             case 255:
                 xposold = xpos;
                 hPixelWidth = printerdpih / (float) cdpih;
-                vPixelWidth = printerdpiv / (float) cdpiv; 
+                vPixelWidth = printerdpiv / (float) cdpiv;
                 int charHeight = 24;
                 if (letterQuality == 1) {
                     hPixelWidth = (float) hPixelWidth * (((float) 360 / (float) cpi) / (float) 8);
@@ -2630,7 +2749,7 @@ main_loop_for_printing:
                 } else {
                     hPixelWidth = (float) hPixelWidth * (((float) 120 / (float) cpi) / (float) 8);
                     vPixelWidth = (float) vPixelWidth * ((float) charHeight / (float) 16);
-                }                
+                }
                 xpos = xpos + hPixelWidth * 8;
                 if (xpos > ((pageSetWidth - 1) - vPixelWidth * 16)) {
                     xpos = marginleftp;
@@ -2654,7 +2773,7 @@ main_loop_for_printing:
                     hmi                    = printerdpih * ((float) 36 / (float) 360); // Reset HMI
                     line_spacing           = printerdpiv * ((float) 1 / (float) 6); // normally 1/6 inch line spacing
                     chrSpacing             =   0;
-                    dpih                   = 240; 
+                    dpih                   = 240;
                     dpiv                   = 216;
                     letterQuality          =   0;
                     proportionalSpacing    =   0;
@@ -2676,11 +2795,11 @@ main_loop_for_printing:
                     print_uppercontrolcodes =  0;
                     vTabulatorsSet         =   0;
                     vTabulatorsCancelled   =   0;
-                    break;                        
-                case '0':    //Select 1/8 inch line spacing 
+                    break;
+                case '0':    //Select 1/8 inch line spacing
                     line_spacing = printerdpiv * ((float) 1 / (float) 8);
                     break;
-                case '1':    //Select 7/72 inch line spacing 
+                case '1':    //Select 7/72 inch line spacing
                     line_spacing = printerdpiv * ((float) 7 / (float) 72);
                     break;
                 case '2':    // Select 1/6-inch line spacing
@@ -2689,11 +2808,11 @@ main_loop_for_printing:
                 case '3':    // Set n/180-inch line spacing ESC 3 n
                     state = read_byte_from_printer((char *) &xd);
                     line_spacing = printerdpiv * ((float) xd / (float) 180);
-                    break;                        
+                    break;
                 case '+':    // Set n/360-inch line spacing ESC + n
                     state = read_byte_from_printer((char *) &xd);
                     line_spacing = printerdpiv * ((float) xd / (float) 360);
-                    break;                        
+                    break;
                 case 'A':    // ESC A n Set n/60 inches (24 pin printer - ESC/P2 or ESC/P) or
                     // n/72 inches line spacing (9 pin printer)
                     state = read_byte_from_printer((char *) &xd);
@@ -2709,7 +2828,7 @@ main_loop_for_printing:
                     hmi = printerdpih * ((float) 36 / (float) 360); // Reset HMI
                     cpi = 12;
                     pitch=12;
-                    break;                        
+                    break;
                 case 'P':     // ESC P Set 10.5-point, 10-cpi
                     // Note - if printer in proportional mode, only takes effect when exits proportional mode
                     multipoint_mode = 0;
@@ -2751,12 +2870,12 @@ main_loop_for_printing:
                     if (i == 0 && xd == 0) {
                         // ESC D NUL cancels all horizontal tabs
                         for (i = 0; i < 32; i++) hTabulators[i] = 0;
-                    }                        
+                    }
                     break;
                 case 'B':    // ESC B n1,n2,n3 .... nk NUL, vertical tab
                     // positions n1..nk - only affects vFUChannel 0
                     i = 0;
-                    vTabulatorsSet = 1; 
+                    vTabulatorsSet = 1;
                     while ((xd != 0) && (i < 16)) {
                         // maximum 16 tabs are allowed
                         // last tab is always 0 to finish list
@@ -2769,7 +2888,7 @@ main_loop_for_printing:
                         for (i = 0; i < 16; i++) vTabulators[i] = 0;
                         vTabulatorsCancelled = 1;
                     }
-                    break;                        
+                    break;
                 case 'b':    // ESC b m, n1,n2,n3 .... nk NUL, vertical tab input VFU channels
                     // positions n1..nk
                     i = 0;
@@ -2787,12 +2906,12 @@ main_loop_for_printing:
                         // ESC b NUL cancels all vertical tabs in current vFUChannel
                         for (i = 0; i < 16; i++) vTabulators[(m * 16) + i] = 0;
                         vTabulatorsCancelled = 1;
-                    }                        
+                    }
                     break;
                 case '/':    // ESC / m, set vertical tab channel
                     state = read_byte_from_printer((char *) &m);
                     vFUChannel = m;
-                    break;                        
+                    break;
                 case 'e':    // ESC e m n, set fixed tab increment
                     state = read_byte_from_printer((char *) &m);
                     state = read_byte_from_printer((char *) &nL);
@@ -2822,7 +2941,7 @@ main_loop_for_printing:
                 case 'a':    // ESC a n, set justification for text
                     // Not implemented
                     state = read_byte_from_printer((char *) &nL);
-                    break;                         
+                    break;
                 case 'Q':    // ESC Q m set the right margin
                     state = read_byte_from_printer((char *) &xd);
                     marginright = (int) xd;
@@ -2851,7 +2970,7 @@ main_loop_for_printing:
                             break;
                         case 90:
                             escZbitDensity = m;
-                            break;                            
+                            break;
                     }
                     break;
                 case 'K':    // ESC K nL nH d1 d2...dk Select 60 dpi graphics
@@ -2876,7 +2995,7 @@ main_loop_for_printing:
                     break;
                 case 'Y':    // ESC Y nL nH d1 d2...dk Select 120 dpi double-speed graphics
                     // Adjacent printing disabled
-                    needles = 9; 
+                    needles = 9;
                     state = read_byte_from_printer((char *) &nL);
                     if (state == 0) break;
                     state = read_byte_from_printer((char *) &nH);
@@ -2884,7 +3003,7 @@ main_loop_for_printing:
                     dotColumns = nH << 8;
                     dotColumns = dotColumns | nL;
                     bitimage_graphics(escYbitDensity, dotColumns);
-                    break;                        
+                    break;
                 case 'Z':    // ESC Z nL nH d1 d2...dk Select 240 dpi graphics
                     needles = 9;
                     state = read_byte_from_printer((char *) &nL);
@@ -2895,13 +3014,13 @@ main_loop_for_printing:
                     dotColumns = dotColumns | nL;
                     bitimage_graphics(escZbitDensity, dotColumns);
                     break;
-                case '^': 
+                case '^':
                     // ESC ^ m nL nH d1 d2 d3 d...  Select 60 oe 120 dpi, 9 pin graphics
                     state = read_byte_from_printer((char *) &m);
-                    if (state == 0) break;                        
+                    if (state == 0) break;
                     state = read_byte_from_printer((char *) &nL);
                     if (state == 0) break;
-                    state = read_byte_from_printer((char *) &nH); 
+                    state = read_byte_from_printer((char *) &nH);
                     if (state == 0) break;
                     hPixelWidth = printerdpih / (float) 60;
                     if (m == 1) hPixelWidth = printerdpih / (float) 120;
@@ -2916,7 +3035,7 @@ main_loop_for_printing:
                     state = read_byte_from_printer((char *) &nL);
                     if (state == 0) break;
                     // if (nL == 0) bufferData = 0;
-                    break;                     
+                    break;
                 case 'S':    // ESC S n select superscript/subscript printing
                     state = read_byte_from_printer((char *) &nL);
                     if ((nL==1) || (nL==49)) {
@@ -2941,12 +3060,12 @@ main_loop_for_printing:
                         outline_printing = 1;
                         shadow_printing = 1;
                     }
-                    break;                        
+                    break;
                 case 'T':    // ESC T cancel superscript or subscript
                     subscript = 0;
                     superscript=0;
                     break;
-                case 'x':    // Select LQ or draft ESC x n 
+                case 'x':    // Select LQ or draft ESC x n
                     // n can be 0 or 48 for draft
                     // and 1 or 49 for letter quality
                     state = read_byte_from_printer((char *) &nL);
@@ -2984,11 +3103,11 @@ main_loop_for_printing:
                 case 'H':    // ESC H CANCEL DOUBLE STRIKE
                     // For now this is same as cancelling bold
                     bold = 0;
-                    break;                        
+                    break;
                 case '-':    // ESC - SELECT UNDERLINED FONT
                     state = read_byte_from_printer((char *) &nL);
                     if ((nL==1) || (nL==49)) underlined=1;
-                    if ((nL==0) || (nL==48)) underlined=0; 
+                    if ((nL==0) || (nL==48)) underlined=0;
                     break;
                 case 'W':    // ESC W SELECT DOUBLE WIDTH
                     state = read_byte_from_printer((char *) &nL);
@@ -2996,11 +3115,11 @@ main_loop_for_printing:
                     if (multipoint_mode == 0) {
                         if ((nL==1) || (nL==49)) double_width=1;
                         if ((nL==0) || (nL==48)) {
-                            double_width=0; 
+                            double_width=0;
                             double_width_single_line = 0;
                         }
                     }
-                    break;                        
+                    break;
                 case 'w':    // ESC w SELECT DOUBLE HEIGHT
                     state = read_byte_from_printer((char *) &nL);
                     hmi = printerdpih * ((float) 36 / (float) 360); // Reset HMI
@@ -3009,31 +3128,31 @@ main_loop_for_printing:
                             double_height=1;
                             quad_height=0;
                         }
-                        if ((nL==0) || (nL==48)) double_height=0; 
+                        if ((nL==0) || (nL==48)) double_height=0;
                     }
                     break;
                 case 'h':    // ESC h ENLARGE - STAR NL-10 implementation
                     state = read_byte_from_printer((char *) &nL);
                     if (multipoint_mode == 0) {
                         switch (nL) {
-                        case 0:    
+                        case 0:
                             double_height=0;
                             quad_height=0;
                             break;
-                        case 1:    
+                        case 1:
                             double_height=1;
                             quad_height=0;
                             break;
-                        case 2:    
+                        case 2:
                             double_height=0;
                             quad_height=1;
-                            break;                            
+                            break;
                         }
                     }
                     break;
                 case '4':    // ESC 4 SELECT ITALIC FONT
                     italic = 1;
-                    break;    
+                    break;
                 case '5':    // ESC 5 CANCEL ITALIC FONT
                     italic = 0;
                     break;
@@ -3063,7 +3182,7 @@ main_loop_for_printing:
                         // Cancel Condensed mode
                         if (pitch==10) cpi=10;
                         if (pitch==12) cpi=12;
-                    }                            
+                    }
                     if ( isNthBitSet(nL, 3) ) {
                         // Select Bold
                         bold = 1;
@@ -3106,25 +3225,25 @@ main_loop_for_printing:
                     switch (nL) {
                     case '-':
                         // ESC ( - nl nh m d1 d2  Select line/score
-                        state = read_byte_from_printer((char *) &nL); 
+                        state = read_byte_from_printer((char *) &nL);
                         if (state == 0) break;
-                        state = read_byte_from_printer((char *) &nH); 
+                        state = read_byte_from_printer((char *) &nH);
                         if (state == 0) break;
-                        state = read_byte_from_printer((char *)  &m); 
+                        state = read_byte_from_printer((char *)  &m);
                         if (state == 0) break;
-                        state = read_byte_from_printer((char *) &d1); 
+                        state = read_byte_from_printer((char *) &d1);
                         if (state == 0) break;
-                        state = read_byte_from_printer((char *) &d2); 
+                        state = read_byte_from_printer((char *) &d2);
                         if (state == 0) break;
-                        if (m==1) {                              
+                        if (m==1) {
                             switch (d1) {
                             // Re-written 30/4/17 - as you can combine it so for example
                             // underlined - single broken_line, with overscore double_continuous line
-                            case 1: 
+                            case 1:
                                 // Underlined
                                 switch (d2) {
                                 case 0:
-                                    //Turn off   
+                                    //Turn off
                                     underlined = 0;
                                     break;
                                 case 1:
@@ -3145,7 +3264,7 @@ main_loop_for_printing:
                                 // Strikethrough
                                 switch (d2) {
                                 case 0:
-                                    //Turn off   
+                                    //Turn off
                                     strikethrough = 0;
                                     break;
                                 case 1:
@@ -3166,7 +3285,7 @@ main_loop_for_printing:
                                 // Overscore
                                 switch (d2) {
                                 case 0:
-                                    //Turn off   
+                                    //Turn off
                                     overscore = 0;
                                     break;
                                 case 1:
@@ -3190,14 +3309,14 @@ main_loop_for_printing:
                             printf("overscore  %d\n",overscore);
                         }
                         break;
-                    case 'C': 
+                    case 'C':
                         // 27 40 67 nL nH mL mH Set page length in defined unit
                         // page size not implemented yet
                         state = read_byte_from_printer((char *) &nL); // always 2
                         if (state == 0) break;
                         state = read_byte_from_printer((char *) &nH); // always 0
                         if (state == 0) break;
-                        state = read_byte_from_printer((char *) &mL); 
+                        state = read_byte_from_printer((char *) &mL);
                         if (state == 0) break;
                         state = read_byte_from_printer((char *) &mH);
                         thisDefaultUnit = defaultUnit;
@@ -3212,17 +3331,17 @@ main_loop_for_printing:
                         marginbottomp = defaultMarginBottomp;
                         ypos = margintopp;
                         break;
-                    case 'c': 
+                    case 'c':
                         // 27 40 67 nL nH tL tH bL bH Set page format
-                        state = read_byte_from_printer((char *) &nL); // always 4 
+                        state = read_byte_from_printer((char *) &nL); // always 4
                         if (state == 0) break;
                         state = read_byte_from_printer((char *) &nH); // always 0
                         if (state == 0) break;
-                        state = read_byte_from_printer((char *) &tL); 
+                        state = read_byte_from_printer((char *) &tL);
                         if (state == 0) break;
-                        state = read_byte_from_printer((char *) &tH); 
+                        state = read_byte_from_printer((char *) &tH);
                         if (state == 0) break;
-                        state = read_byte_from_printer((char *) &bL); 
+                        state = read_byte_from_printer((char *) &bL);
                         if (state == 0) break;
                         state = read_byte_from_printer((char *) &bH);
                         thisDefaultUnit = defaultUnit;
@@ -3232,15 +3351,15 @@ main_loop_for_printing:
                         if (marginbottomp > 22 * printerdpih) marginbottomp = 22 * printerdpih; // Max 22 inches
                         if (marginbottomp > pageSetHeight) marginbottomp = pageSetHeight;
                         ypos = margintopp;
-                        // cancel top and bottom margins (margintopp and marginbottomp - to be implemented)                            
+                        // cancel top and bottom margins (margintopp and marginbottomp - to be implemented)
                         break;
-                    case 'V': 
+                    case 'V':
                         // 27 40 86 nL nH mL mH Set absolute vertical print position
-                        state = read_byte_from_printer((char *) &nL); // Always 2 
+                        state = read_byte_from_printer((char *) &nL); // Always 2
                         if (state == 0) break;
                         state = read_byte_from_printer((char *) &nH); // Always 0
                         if (state == 0) break;
-                        state = read_byte_from_printer((char *) &mL); 
+                        state = read_byte_from_printer((char *) &mL);
                         if (state == 0) break;
                         state = read_byte_from_printer((char *) &mH);
                         thisDefaultUnit = defaultUnit;
@@ -3248,20 +3367,20 @@ main_loop_for_printing:
                         ypos2 = margintopp + ((mH * 256) + mL) * (int) thisDefaultUnit;
                         // Ignore if movement is more than 179/360" upwards
                         if (ypos2 < (ypos - (printerdpiv * ((float) 179/(float) 360))) ) ypos2 = ypos;
-                        // Ignore if command would move upwards after graphics command sent on current line, or above where graphics have 
+                        // Ignore if command would move upwards after graphics command sent on current line, or above where graphics have
                         // previously been printed - to be implemented
                         ypos = ypos2;
                         test_for_new_paper();
                         break;
-                    case 'v': 
+                    case 'v':
                         // 27 40 118 nL nH mL mH Set relative vertical print position
-                        state = read_byte_from_printer((char *) &nL); // Always 2 
+                        state = read_byte_from_printer((char *) &nL); // Always 2
                         if (state == 0) break;
                         state = read_byte_from_printer((char *) &nH); // Always 0
                         if (state == 0) break;
-                        state = read_byte_from_printer((char *) &mL); 
+                        state = read_byte_from_printer((char *) &mL);
                         if (state == 0) break;
-                        state = read_byte_from_printer((char *) &mH); 
+                        state = read_byte_from_printer((char *) &mH);
                         thisDefaultUnit = defaultUnit;
                         if (defaultUnit == 0) thisDefaultUnit = printerdpiv / (float) 360; // Default for command is 1/360 inch units
                         if (mH > 127) {
@@ -3270,8 +3389,8 @@ main_loop_for_printing:
                         }
                         ypos2 = ypos + ((mH * 256) + mL) * (int) thisDefaultUnit;
                         // Ignore if movement is more than 179/360" upwards
-                        if (ypos2 < (ypos - (printerdpiv * ((float) 179/(float) 360))) ) ypos2 = ypos;                        
-                        // ignore if command would move upwards after graphics command sent on current line, or above where graphics have 
+                        if (ypos2 < (ypos - (printerdpiv * ((float) 179/(float) 360))) ) ypos2 = ypos;
+                        // ignore if command would move upwards after graphics command sent on current line, or above where graphics have
                         // previously been printed - to be written
                         if (ypos2 < margintopp) {
                             // No action
@@ -3280,16 +3399,16 @@ main_loop_for_printing:
                             test_for_new_paper();
                         }
                         break;
-                    case 'U': 
+                    case 'U':
                         // 27 40 85 nL nH m Set unit
-                        state = read_byte_from_printer((char *) &nL); // Always 1 
+                        state = read_byte_from_printer((char *) &nL); // Always 1
                         if (state == 0) break;
-                        state = read_byte_from_printer((char *) &nH); // Always 0 
+                        state = read_byte_from_printer((char *) &nH); // Always 0
                         if (state == 0) break;
                         state = read_byte_from_printer((char *) &m);
                         defaultUnit = ((float) m / (float) 3600) * printerdpiv; // set default unit to m/3600 inches
                         break;
-                    case 'i': 
+                    case 'i':
                         // ESC ( i 01 00 n  Select microweave print mode
                         state = read_byte_from_printer((char *) &nL);
                         if (state == 0) break;
@@ -3300,43 +3419,43 @@ main_loop_for_printing:
                             if ((m == 0) || (m == 48)) microweave_printing = 0;
                             if ((m == 1) || (m == 49)) microweave_printing = 1;
                         }
-                        break;                        
-                    case 't': 
+                        break;
+                    case 't':
                         // 27 40 116 nL nH d1 d2 d3 Assign character table
                         // not implemented yet
-                        state = read_byte_from_printer((char *) &nL); 
+                        state = read_byte_from_printer((char *) &nL);
                         if (state == 0) break;
-                        state = read_byte_from_printer((char *) &nH); 
+                        state = read_byte_from_printer((char *) &nH);
                         if (state == 0) break;
-                        state = read_byte_from_printer((char *) &d1); 
+                        state = read_byte_from_printer((char *) &d1);
                         if (state == 0) break;
-                        state = read_byte_from_printer((char *) &d2); 
+                        state = read_byte_from_printer((char *) &d2);
                         if (state == 0) break;
-                        state = read_byte_from_printer((char *) &d3); 
+                        state = read_byte_from_printer((char *) &d3);
                         break;
-                    case '^': 
+                    case '^':
                         // ESC ( ^ nL nH d1 d2 d3 d...  print data as characters (ignore control codes)
-                        state = read_byte_from_printer((char *) &nL); // NULL 
+                        state = read_byte_from_printer((char *) &nL); // NULL
                         if (state == 0) break;
-                        state = read_byte_from_printer((char *) &nH); 
+                        state = read_byte_from_printer((char *) &nH);
                         if (state == 0) break;
                         m = (nH * 256) + nL;
                         j = 0;
                         while (j < m) {
-                            // read data and print as normal 
+                            // read data and print as normal
                             // ignore if no character assigned to that character code in current character table
-                            state = read_byte_from_printer((char *) &xd); 
+                            state = read_byte_from_printer((char *) &xd);
                             print_character(xd);
                             j++;
                         }
-                        break;                        
-                    case 'G': 
+                        break;
+                    case 'G':
                         // ESC ( G nL nH m  Select graphics mode
-                        state = read_byte_from_printer((char *) &nL); // NULL 
+                        state = read_byte_from_printer((char *) &nL); // NULL
                         if (state == 0) break;
-                        state = read_byte_from_printer((char *) &nH); 
+                        state = read_byte_from_printer((char *) &nH);
                         if (state == 0) break;
-                        state = read_byte_from_printer((char *) &m); 
+                        state = read_byte_from_printer((char *) &m);
                         if ((nL == 1) && (nH == 0) && ((m == 1) || (m == 49)) ) {
                             graphics_mode = 1;
                             // clear all user defined graphics - To be implemented
@@ -3360,28 +3479,28 @@ main_loop_for_printing:
                     // not implemented yet
                     state = read_byte_from_printer((char *) &nL);
                     break;
-                case '&': 
+                case '&':
                     // ESC & NULL nL m a0 a1 a2 d1 d2 d3 d...  Define user defined characters
                     // not implemented yet - Needs more work because number of d1.... codes varies and not clear how to calculate!!
-                    state = read_byte_from_printer((char *) &nL); // NULL 
+                    state = read_byte_from_printer((char *) &nL); // NULL
                     if (state == 0) break;
-                    state = read_byte_from_printer((char *) &nL); 
+                    state = read_byte_from_printer((char *) &nL);
                     if (state == 0) break;
-                    state = read_byte_from_printer((char *) &m); 
+                    state = read_byte_from_printer((char *) &m);
                     if (state == 0) break;
                     if (m < nL) break;
                     i = 0;
                     if (needles == 9) {
                         // ESC & NULL nL m a0 d1 d2 d3 d... for draft
                         // ESC & NULL nL m 0 a0 0 d1 d2 d3 d... for NLQ
-                        state = read_byte_from_printer((char *) &a0); 
+                        state = read_byte_from_printer((char *) &a0);
                         if (state == 0) break;
                         if (a0 == 0) {
                             // NLQ
                             while (i < (m-nL)+1) {
-                                state = read_byte_from_printer((char *) &a0); 
+                                state = read_byte_from_printer((char *) &a0);
                                 if (state == 0) break;
-                                state = read_byte_from_printer((char *) &xd); 
+                                state = read_byte_from_printer((char *) &xd);
                                 if (state == 0) break;
                                 // Should be 0 returned
                                 j = 0;
@@ -3392,7 +3511,7 @@ main_loop_for_printing:
                                     j++;
                                 }
                                 i++;
-                            }                                
+                            }
                         } else {
                             // DRAFT
                             // Get first remaining bit of data, then repeat
@@ -3405,7 +3524,7 @@ main_loop_for_printing:
                             }
                             i++;
                             while (i < (m-nL)+1) {
-                                state = read_byte_from_printer((char *) &a0); 
+                                state = read_byte_from_printer((char *) &a0);
                                 if (state == 0) break;
                                 j = 0;
                                 // Check - should this be a0
@@ -3420,9 +3539,9 @@ main_loop_for_printing:
                     } else {  // needles must be 24 here
                         // ESC & NULL nL m a0 a1 a2 d1 d2 d3 d...
                         while (i < (m-nL)+1) {
-                            state = read_byte_from_printer((char *) &a0); 
+                            state = read_byte_from_printer((char *) &a0);
                             if (state == 0) break;
-                            state = read_byte_from_printer((char *) &a1); 
+                            state = read_byte_from_printer((char *) &a1);
                             if (state == 0) break;
                             state = read_byte_from_printer((char *) &a2);
                             if (state == 0) break;
@@ -3435,7 +3554,7 @@ main_loop_for_printing:
                             }
                             i++;
                         }
-                    }                        
+                    }
                     break;
                 case ':':
                     // ESC : nul n m Copy ROM to RAM (for amending character codes)
@@ -3448,12 +3567,12 @@ main_loop_for_printing:
                     // ESC % n Select user-defined character set
                     // not implemented yet
                     state = read_byte_from_printer((char *) &nL);
-                    break;                                                
+                    break;
                 case 'k':
                     // ESC k n Select typeface for LQ printing - ignore id user-defined character set selected
                     // not implemented yet
                     state = read_byte_from_printer((char *) &nL);
-                    break;                        
+                    break;
                 case 'f':
                     // ESC f m n Horizontal / Vertical Skip
                     state = read_byte_from_printer((char *) &m);
@@ -3482,7 +3601,7 @@ main_loop_for_printing:
                     state = read_byte_from_printer((char *) &nL);
                     state = read_byte_from_printer((char *) &nH);
                     hmi = printerdpih * ((float) (nH *256) + (float) nL / (float) 360);
-                    break;                        
+                    break;
                 case 'X':
                     // ESC X m nL nH Select font by pitch & point
                     // not implemented yet
@@ -3498,11 +3617,11 @@ main_loop_for_printing:
                     } else if (m >5) {
                         cpi = (float) 360 / (float) m;
                     }
-                    if ((nH > 0) || (nL > 0)) {                    
+                    if ((nH > 0) || (nL > 0)) {
                         // Set point size - 1 pt = 1/72 inch - not yet implemented
                         // pointSize = ((nH * 256) + nL) / 2
                     }
-                    break;                          
+                    break;
                 case 'U':    // Turn unidirectional mode on/off ESC U n n = 0 or
                     // 48 Bidirectional 1 or 49 unidirectional
                     // not required
@@ -3520,21 +3639,21 @@ main_loop_for_printing:
                     break;
                 case '>':    // Set MSB (bit 7) of all incoming data to 1
                     msbsetting = 2;
-                    break;                   
+                    break;
                 case '8':    // Disable paper-out detector
                     // not required
-                    break;                         
+                    break;
                 case '9':    // Enable paper-out detector
                     // not required
                     break;
                 case 'i':    // Select immediate mode on/off ESC i n
                     // not required
                     state = read_byte_from_printer((char *) &nL);
-                    break;                    
+                    break;
                 case 's':    // Select low-speed mode on/off ESC s n
                     // not required
                     state = read_byte_from_printer((char *) &nL);
-                    break;                    
+                    break;
                 case 'C':    // 27 67 n Set page length in lines 1<n<127
                     // not implemented yet
                     state = read_byte_from_printer((char *) &nL);
@@ -3564,7 +3683,7 @@ main_loop_for_printing:
                         // No action
                     } else {
                         xpos = xpos2;
-                    }                        
+                    }
                     break;
                 case 92:   // Set relative horizonal print position ESC \ nL nH
                     state = read_byte_from_printer((char *) &nL); // always 2
@@ -3609,15 +3728,15 @@ main_loop_for_printing:
                     state = read_byte_from_printer((char *) &nL);
                     if (italic == 0 ) {
                         if (nL==0) print_uppercontrolcodes=1;
-                        if (nL==4) print_uppercontrolcodes=0;                     
+                        if (nL==4) print_uppercontrolcodes=0;
                     }
                     break;
-                case 'r':   
-                    // ESC r n Set printing colour (n=0-7) 
+                case 'r':
+                    // ESC r n Set printing colour (n=0-7)
                     // (Black, Magenta, Cyan, Violet, Yellow, Red, Green, White)
                     state = read_byte_from_printer((char *) &printColour);
                     break;
-                case 10: // ESC LF 
+                case 10: // ESC LF
                     // Reverse line feed - Star NL-10
                     ypos = ypos - line_spacing;
                     xpos = marginleftp;
@@ -3629,17 +3748,17 @@ main_loop_for_printing:
                     ypos = -1;  // just put it in an out of area position
                     xpos = marginleftp;
                     test_for_new_paper();
-                    break;                        
+                    break;
                 case 20:    // ESC SP Set intercharacter space
                     state = read_byte_from_printer((char *) &nL);
                     hmi = printerdpih * ((float) 36 / (float) 360); // Reset HMI
                     if (multipoint_mode == 0) {
                         chrSpacing = nL;
-                    }                    
-                    break;                        
+                    }
+                    break;
                 case 25:    // ESC EM n Control paper loading / ejecting (do nothing)
                     state = read_byte_from_printer((char *) &nL);
-                    break;                       
+                    break;
                 case '*':    // ESC * m nL nH d1 d2 . . . dk print bit-image graphics.
                     m = 0;
                     nL = 0;
@@ -3656,7 +3775,7 @@ main_loop_for_printing:
                     break;
                 case 14:    // ESC SO Shift Out Select double Width printing (for one line)
                     if (multipoint_mode == 0) double_width_single_line = 1;
-                    break;                    
+                    break;
                 case 15:    // ESC SI Shift In Condensed printing on
                     if (multipoint_mode == 0) {
                         if (pitch==10) cpi=17.14;
@@ -3668,16 +3787,16 @@ main_loop_for_printing:
             }   // End of ESC branch
         }
         if (sdlon) SDL_UpdateRect(display, 0, 0, 0, 0);
-    }   
+    }
 
     if (sdlon) SDL_UpdateRect(display, 0, 0, 0, 0);
     if (i == 0) goto main_loop_for_printing;
-   
+
     printf("\n\nI am at page %d\n", page);
 
     sprintf(filenameX, "%spage%d.png", pathpng, page);
     int dataToConvert = write_png(filenameX, pageSetWidth, pageSetHeight, printermemory);
-    
+
     if (rawispcl == 1) {
         sprintf(filenameX, "cp  %s*.raw  %s ", pathraw,pathpcl);
         printf("command = %s \n", filenameX);
@@ -3698,14 +3817,14 @@ main_loop_for_printing:
             sprintf(filenameY, "%s%d.eps", patheps,page);
             convertUnixWinMac(filenameX,filenameY);
         }
-    }     
+    }
     if (dataToConvert > 0) {
         sprintf(filenameX, "convert  %spage%d.png  %spage%d.pdf ", pathpng, page,pathpdf, page);
         printf("command = %s \n", filenameX);
         system(filenameX);
         page++;
         if (page > 199) {
-            page = dirX(pathraw); 
+            page = dirX(pathraw);
             reduce_pages(page, pathraw);
             page = dirX(pathpng);
             reduce_pages(page, pathpng);
@@ -3715,21 +3834,21 @@ main_loop_for_printing:
         }
     }
 
-    system("sync &"); //avoid loss of data if usb-stick is pulled off   
- 
+    system("sync &"); //avoid loss of data if usb-stick is pulled off
+
     if ((fp != NULL)) {
         fclose(fp);
         fp = NULL;
     }        // close text file
-    
+
     // No more data to be read from file
     if (feof(inputFile)) {
         fclose(inputFile);
         free(printermemory);
         free(seedrow);
         exit(0);
-    }    
-    
+    }
+
     // sleep(1);
     goto main_loop_for_printing;
 
