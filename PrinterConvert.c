@@ -816,7 +816,7 @@ void _print_seedRows(float hPixelWidth, float vPixelWidth){
         seedrowStart = (seedrowColour * pageSetWidth) /8;
         seedrowEnd = seedrowStart + (pageSetWidth / 8);
         bytePointer = seedrowStart + (xpos / 8);
-        bitOffset = 7 - (xpos - (8 * (xpos /8))); // No idea why bitOffset = 7 - (xpos & 8) seems to either be 7-8 or 7-0 (bug in gcc?)
+        bitOffset = 7 - (xpos % 8);
         for (byteOffset = bytePointer; byteOffset < seedrowEnd; byteOffset++) {
             xd = seedrow[byteOffset];
             if (xd > 0) {
@@ -839,7 +839,7 @@ void _print_seedRows(float hPixelWidth, float vPixelWidth){
 void _print_incomingDataByte(int compressMode, unsigned char xd, int seedrowStart, int seedrowEnd, float hPixelWidth, float vPixelWidth) {
     int byteOffset, bitOffset, xByte;
     byteOffset = seedrowStart + (xpos / 8);
-    bitOffset = 7 - (xpos - (8 * (xpos /8))); // No idea why bitOffset = 7 - (xpos & 8) seems to either be 7-8 or 7-0 (bug in gcc?)
+    bitOffset = 7 - (xpos % 8);
     if (xd == 0) {
         if (compressMode == 3) {
             // for ESC.3 Delta Row clear bits in seedrow for current colour
