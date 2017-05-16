@@ -150,7 +150,7 @@ int * cmyk_to_rgb(double cmyk_c, double cmyk_m, double cmyk_y, double cmyk_k)
 
 int * cmykColourMix(int rgb_red1, int rgb_green1, int rgb_blue1, int rgb_red2, int rgb_green2, int rgb_blue2)
 {
-    static int rgb_result[4];
+    static int rgb_result[3];
     int *rgb_lookups;
     double *cmyk, cmyk_result_c, cmyk_result_m, cmyk_result_y, cmyk_result_k, opacity = 0.5;
     cmyk_result_c = 0;
@@ -174,7 +174,6 @@ int * cmykColourMix(int rgb_red1, int rgb_green1, int rgb_blue1, int rgb_red2, i
     rgb_result[0] = rgb_lookups[0];
     rgb_result[1] = rgb_lookups[1];
     rgb_result[2] = rgb_lookups[2];
-    rgb_result[3] = rgb_lookups[3];
     return rgb_result;
 }
 
@@ -211,9 +210,9 @@ int * lookupColour(unsigned char colourValue)
         // Magenta FF00FF
         if (mixColour == 1) {
             if (colourMixMethod == 1) {
-            mixedColour_red = (mixedColour_red + 255) /2;
-            mixedColour_green = (mixedColour_green + 0) /2;
-            mixedColour_blue = (mixedColour_blue + 255) /2;
+                mixedColour_red = (mixedColour_red + 255) /2;
+                mixedColour_green = (mixedColour_green + 0) /2;
+                mixedColour_blue = (mixedColour_blue + 255) /2;
             } else {
                 mixedColour = cmykColourMix(mixedColour_red, mixedColour_green, mixedColour_blue, 255, 0, 255);
                 mixedColour_red = mixedColour[0];
@@ -231,9 +230,9 @@ int * lookupColour(unsigned char colourValue)
         // Cyan 00FFFF
         if (mixColour == 1) {
             if (colourMixMethod == 1) {
-            mixedColour_red = (mixedColour_red + 0) /2;
-            mixedColour_green = (mixedColour_green + 255) /2;
-            mixedColour_blue = (mixedColour_blue + 255) /2;
+                mixedColour_red = (mixedColour_red + 0) /2;
+                mixedColour_green = (mixedColour_green + 255) /2;
+                mixedColour_blue = (mixedColour_blue + 255) /2;
             } else {
                 mixedColour = cmykColourMix(mixedColour_red, mixedColour_green, mixedColour_blue, 0, 255, 255);
                 mixedColour_red = mixedColour[0];
@@ -251,9 +250,9 @@ int * lookupColour(unsigned char colourValue)
         // Violet EE82EE
         if (mixColour == 1) {
             if (colourMixMethod == 1) {
-            mixedColour_red = (mixedColour_red + 238) /2;
-            mixedColour_green = (mixedColour_green + 130) /2;
-            mixedColour_blue = (mixedColour_blue + 238) /2;
+                mixedColour_red = (mixedColour_red + 238) /2;
+                mixedColour_green = (mixedColour_green + 130) /2;
+                mixedColour_blue = (mixedColour_blue + 238) /2;
             } else {
                 mixedColour = cmykColourMix(mixedColour_red, mixedColour_green, mixedColour_blue, 238, 130, 238);
                 mixedColour_red = mixedColour[0];
@@ -271,9 +270,9 @@ int * lookupColour(unsigned char colourValue)
         // Yellow FFFF00
         if (mixColour == 1) {
             if (colourMixMethod == 1) {
-            mixedColour_red = (mixedColour_red + 255) /2;
-            mixedColour_green = (mixedColour_green + 255) /2;
-            mixedColour_blue = (mixedColour_blue + 0) /2;
+                mixedColour_red = (mixedColour_red + 255) /2;
+                mixedColour_green = (mixedColour_green + 255) /2;
+                mixedColour_blue = (mixedColour_blue + 0) /2;
             } else {
                 mixedColour = cmykColourMix(mixedColour_red, mixedColour_green, mixedColour_blue, 255, 255, 0);
                 mixedColour_red = mixedColour[0];
@@ -291,9 +290,9 @@ int * lookupColour(unsigned char colourValue)
         // Red FF0000
         if (mixColour == 1) {
             if (colourMixMethod == 1) {
-            mixedColour_red = (mixedColour_red + 255) /2;
-            mixedColour_green = (mixedColour_green + 0) /2;
-            mixedColour_blue = (mixedColour_blue + 0) /2;
+                mixedColour_red = (mixedColour_red + 255) /2;
+                mixedColour_green = (mixedColour_green + 0) /2;
+                mixedColour_blue = (mixedColour_blue + 0) /2;
             } else {
                 mixedColour = cmykColourMix(mixedColour_red, mixedColour_green, mixedColour_blue, 255, 0, 0);
                 mixedColour_red = mixedColour[0];
@@ -311,9 +310,9 @@ int * lookupColour(unsigned char colourValue)
         // Green 00FF00
         if (mixColour == 1) {
             if (colourMixMethod == 1) {
-            mixedColour_red = (mixedColour_red + 0) /2;
-            mixedColour_green = (mixedColour_green + 255) /2;
-            mixedColour_blue = (mixedColour_blue + 0) /2;
+                mixedColour_red = (mixedColour_red + 0) /2;
+                mixedColour_green = (mixedColour_green + 255) /2;
+                mixedColour_blue = (mixedColour_blue + 0) /2;
             } else {
                 mixedColour = cmykColourMix(mixedColour_red, mixedColour_green, mixedColour_blue, 0, 255, 0);
                 mixedColour_red = mixedColour[0];
@@ -468,7 +467,7 @@ int cfileexists(const char* filename)
 int write_png(const char *filename, int width, int height, char *rgb)
 {
     int ipos, data_found = 0, end_loop = 0;
-    int pixelColour;
+    unsigned char pixelColour;
     int code = 1;
     png_structp png_ptr = NULL;
     png_infop info_ptr = NULL;
