@@ -15,10 +15,14 @@ RWAP Software
 March 2017
 
 PRE-REQUISITES
-You will need libgd and ImageMagick installed on Linux. 
+You will need libpng, ImageMagick and libHARU installed on Linux. 
 
 For Debian (on the Raspberry Pi), this means running;
 <code>apt-get install libpng ImageMagick</code>
+
+LibHaru has to be downloaded from source and compiled:
+http://libharu.org/
+- detailed installation instructions appear at: https://github.com/libharu/libharu/wiki/Installation
 
 
 COMPILING
@@ -28,4 +32,4 @@ On some versions of Linux, you will need to change the reference in line 6 to re
 
 To compile the program use the following command:
 
-<code>gcc PrinterConvert.c \`sdl-config --cflags --libs\` -o PrinterConvert -lrt  -lpng</code>
+<code>gcc retroprinter.c `sdl-config --cflags --libs` -o retroprinter -lrt -lhpdf -lpng</code>
