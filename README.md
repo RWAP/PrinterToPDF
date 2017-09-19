@@ -33,3 +33,7 @@ On some versions of Linux, you will need to change the reference in line 6 to re
 To compile the program use the following command:
 
 <code>gcc retroprinter.c `sdl-config --cflags --libs` -o retroprinter -lrt -lhpdf -lpng</code>
+
+
+DISCUSSION
+For general discussion about the PrinterToPDF software and the Retro-Printer project which forms the basis for this conversion software, please visit the forums - forum.retroprinter.com
