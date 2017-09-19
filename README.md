@@ -36,4 +36,4 @@ To compile the program use the following command:
 
 
 DISCUSSION
-For general discussion about the PrinterToPDF software and the Retro-Printer project which forms the basis for this conversion software, please visit the forums - forum.retroprinter.com
+For general discussion about the PrinterToPDF software and the Retro-Printer project which forms the basis for this conversion software, please visit the forums - http://forum.retroprinter.com
