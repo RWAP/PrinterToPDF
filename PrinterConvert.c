@@ -540,11 +540,11 @@ int write_png(const char *filename, int width, int height, char *rgb)
     int ipos, data_found = 0, end_loop = 0;
     unsigned char pixelColour;
     int code = 1;
-    if (imageMode == 2 ) {
-        png_structp png_ptr = NULL;
-        png_infop info_ptr = NULL;
-        png_bytep row = NULL;
-    }
+    //Used only if (imageMode == 2 )
+    png_structp png_ptr = NULL;
+    png_infop info_ptr = NULL;
+    png_bytep row = NULL;
+    //
     FILE *file = NULL;
 
     // Check if a blank page - if so ignore it!
@@ -2667,10 +2667,10 @@ main_loop_for_printing:
                             state = read_byte_from_printer((char *) &mH);
                             if (state == 0) break;
                             pageManagementUnit = ((float) m1 / (float) ((mH * 256) + mL) * printerdpiv);
-                            relVerticalUnit = ((float) m2 / (float) ((mH * 256) + mL) * printerdpiv;
-                            absVerticalUnit = ((float) m2 / (float) ((mH * 256) + mL) * printerdpiv;
-                            relHorizontalUnit = ((float) m3 / (float) ((mH * 256) + mL) * printerdpiv;
-                            absHorizontalUnit = ((float) m3 / (float) ((mH * 256) + mL) * printerdpiv;
+                            relVerticalUnit = ((float) m2 / (float) ((mH * 256) + mL) * printerdpiv);
+                            absVerticalUnit = ((float) m2 / (float) ((mH * 256) + mL) * printerdpiv);
+                            relHorizontalUnit = ((float) m3 / (float) ((mH * 256) + mL) * printerdpiv);
+                            absHorizontalUnit = ((float) m3 / (float) ((mH * 256) + mL) * printerdpiv);
                         }
                         break;
                     case 'i':
@@ -3754,10 +3754,10 @@ main_loop_for_printing:
                             state = read_byte_from_printer((char *) &mH);
                             if (state == 0) break;
                             pageManagementUnit = ((float) m1 / (float) ((mH * 256) + mL) * printerdpiv);
-                            relVerticalUnit = ((float) m2 / (float) ((mH * 256) + mL) * printerdpiv;
-                            absVerticalUnit = ((float) m2 / (float) ((mH * 256) + mL) * printerdpiv;
-                            relHorizontalUnit = ((float) m3 / (float) ((mH * 256) + mL) * printerdpiv;
-                            absHorizontalUnit = ((float) m3 / (float) ((mH * 256) + mL) * printerdpiv;
+                            relVerticalUnit = ((float) m2 / (float) ((mH * 256) + mL) * printerdpiv);
+                            absVerticalUnit = ((float) m2 / (float) ((mH * 256) + mL) * printerdpiv);
+                            relHorizontalUnit = ((float) m3 / (float) ((mH * 256) + mL) * printerdpiv);
+                            absHorizontalUnit = ((float) m3 / (float) ((mH * 256) + mL) * printerdpiv);
                         }
                         break;
                     case 'i':
