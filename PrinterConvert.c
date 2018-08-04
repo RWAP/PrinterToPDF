@@ -17,6 +17,10 @@
  *      Tidied up handling of the default configuration files  
  * www.retroprinter.com
  * Relies on libpng and ImageMagick libraries
+ *
+ * Incoming data (if Epson ESC/P or ESC/P2) is used to generate a bitmap.
+ * Without any library to convert the bitmap directly to PDF, we have to convert the bitmap to PNG initially and then 
+ * convert the PNG to a PDF file using the libHaru library
  */
 
 // Configuration options - these are currently intended to be simple files with flags
@@ -29,6 +33,10 @@ float printerdpih = 720;
 float printerdpiv = 720;
 int pageSetWidth;
 int pageSetHeight;
+
+// Space used for storage - printermemory holds the bitmap file generated from the captured data
+// seedrow is used for enhanced ESC/P2 printer modes where each line is based on preceding line
+// imagememory is used to store the PNG file (generated from the bitmap).
 unsigned char *printermemory, *seedrow, *imagememory;
 int defaultMarginLeftp,defaultMarginRightp,defaultMarginTopp,defaultMarginBottomp;
 int marginleft = 0, marginright = 99;       // in characters
@@ -68,7 +76,7 @@ int ackposition            = 0;
 int msbsetting             = 0;
 int rawispcl               = 0;         //if 1 the raw folder is copied to pcl folder and raw files are renamed to *.pcl in the pcl folder
 int rawiseps               = 0;         //if 1 the raw folder is copied to eps folder and raw files are renamed to *.eps in the eps folder
-int outputFormatText       = 0;         //0=no conversion  1=Unix (LF) 2= Windows (CR+LF) 3=MAC (CR)
+int outputFormatText       = 0;         //Used to determine whether to convert line endings in captured file 0=no conversion  1=Unix (LF) 2= Windows (CR+LF) 3=MAC (CR)
 int printColour            = 0;         //Default colour is black
 double defaultUnit         = 0;         //Use Default defined unit
 double thisDefaultUnit     = 0;         //Default unit for use by command
