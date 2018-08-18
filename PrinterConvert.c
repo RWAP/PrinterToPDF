@@ -10,11 +10,12 @@
 #include "dir.c"
 
 /* Conversion program to convert Epson ESC/P printer data to an Adobe PDF file on Linux.
- * v1.1
+ * v1.2
  *
  * v1.0 First Release - taken from the conversion software currently in development for the Retro-Printer module.
  * v1.1 Swithced to using libHaru library to create the PDF file for speed and potential future enhancements - see http://libharu.org/
  *      Tidied up handling of the default configuration files  
+ * v1.2 Removed possibility of a stack dump where tries to unlink both imagememory and seedrow
  * www.retroprinter.com
  * Relies on libpng and ImageMagick libraries
  *
@@ -4227,8 +4228,12 @@ main_loop_for_printing:
     if (feof(inputFile)) {
         fclose(inputFile);
         free(printermemory);
-        free(imagememory);
-        free(seedrow);
+        if (imagememory == seedrow) {
+            free(imagememory);
+        } else {
+            free(imagememory);
+            free(seedrow);
+        }
         exit(0);
     }
 
