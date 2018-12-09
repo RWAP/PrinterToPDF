@@ -23,6 +23,7 @@ For Debian (on the Raspberry Pi), this means running;
 LibHaru has to be downloaded from source and compiled:
 http://libharu.org/
 - detailed installation instructions appear at: https://github.com/libharu/libharu/wiki/Installation
+You may also be able to use : <code>sudo apt install libhpdf-2.2.1 libhpdf-dev</code> although the latest version is v2.3.0.
 
 
 COMPILING
