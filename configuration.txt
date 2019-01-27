@@ -1,13 +1,8 @@
-PrinterToPDF v1.1
+PrinterToPDF v1.3
 
 Configuration files are stored in /root/config/ as individual files
 
 Currently the options are:
-
-/root/config/emulation
-Set this to Epson or HP to determine whether the PrinterConvertor should default to Epson ESC/P2 or HP PCL emulation.
-
-Default is Epson
 
 /root/config/linefeed_ending
 This dictates the linefeed to be used in the captured data.
@@ -17,11 +12,10 @@ Default is Windows
 
 /root/config/output_path
 Specify the path directory for storing the output from the PrinterConvertor
-/usbstick will be recognised as a USB memory stick
 The resulting file is a copy of the original captured data; subject to changes required according to the retain_linefeed and linefeed_ending settings.
 Default is /home/pi/data/
 
-NB - if emulation is set to Epson, the captured data is stored as XXXX.eps, if emulation is set to HP, captured data is stored as XXXX.pcl
+NB - The captured data is stored as XXXX.eps
 
 These defaults can be altered by editing the above files, OR you can pass them as parameters to the call to the /printerConvertor
 program.
