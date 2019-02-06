@@ -10,13 +10,14 @@
 #include "dir.c"
 
 /* Conversion program to convert Epson ESC/P printer data to an Adobe PDF file on Linux.
- * v1.3
+ * v1.4
  *
  * v1.0 First Release - taken from the conversion software currently in development for the Retro-Printer module.
  * v1.1 Swithced to using libHaru library to create the PDF file for speed and potential future enhancements - see http://libharu.org/
  *      Tidied up handling of the default configuration files  
  * v1.2 Removed possibility of a stack dump where tries to unlink both imagememory and seedrow
  * v1.3 General code tidy and improve handling of 9 pin printers
+ * v1.4 Added Auto-Linefeed configuration, handle extended control codes and bring up to the same standard as v3.2 Retro-Printer Software
  * www.retroprinter.com
  *
  * Relies on libpng and ImageMagick libraries
@@ -26,19 +27,26 @@
  * convert the PNG to a PDF file using the libHaru library
  */
 
-// Configuration options - these are currently intended to be simple files with flags
-#define EMULATION_CONFIG    "/root/config/emulation"
-#define LINEFEED_CONFIG     "/root/config/linefeed_ending"
-#define PATH_CONFIG         "/root/config/output_path"
+// START OF CONFIGURATION OPTIONS
+// Configuration files - these are simple files with flags
+#define LINEFEED_CONFIG     "/root/config/linefeed_ending"          // Unix, Windows or Mac line feeds in conversion
+#define PATH_CONFIG         "/root/config/output_path"              // default path for output files
 
-int pageSize;
-float printerdpih = 720;
-float printerdpiv = 720;
-int pageSetWidth;
-int pageSetHeight;
-
+int pageSize;                               // Sets up page size - see initialize() for details
 int cpi = 10;                               // PICA is standard
 int pitch = 10;                             //Same as cpi but will retain its value when condensed printing is switched on
+int needles = 24;                           // number of needles - 9 pin can be important for line spacing
+int letterQuality = 0;                      // LQ Mode?
+int proportionalSpacing = 0;                // Proportional Mode (not implemented)
+int imageMode = 1;                          // Whether to use faster in memory conversion or file conversion
+int colourSupport = 6;                      // Does the ESC.2 / ESC.3 mode support 4 colour (CMYK) or 6 colour (CMYK + Light Cyan, Light Magenta) ?
+int auto_LF = 0;                            // Whether we should process a CR on its own as a line feed
+// END OF CONFIGURATION OPTIONS
+
+int pageSetWidth;
+int pageSetHeight;
+float printerdpih = 720;
+float printerdpiv = 720;
 float hmi = (float) 720 * ((float) 36 / (float) 360);              // pitch in inches per character.  Default is 36/360 * 720 = 10 cpi
 int line_spacing = (float) 720 * ((float) 1 / (float) 6);     // normally 1/6 inch line spacing - (float) 30*((float)pitch/(float)cpi);
 int cdpih = 120;                            // fixed dots per inch used for printing characters
@@ -46,12 +54,6 @@ int cdpiv = 144;                            // fixed dots per inch used for prin
 int cpih = 10;                              // Default is PICA
 int cpiv = 6;                               // Default font height in cpi (default line spacing is 1/6" inch too)
 int dpih = 180, dpiv = 180;                 // resolution in dpi for ESC/P2 printers
-int needles = 24;                           // number of needles - 9 pin can be important for line spacing
-int letterQuality = 0;                      // LQ Mode?
-int proportionalSpacing = 0;                // Proportional Mode (not implemented)
-int imageMode = 1;          // Whether to use faster in memory conversion or file conversion
-int colourSupport = 6;      // Does the ESC.2 / ESC.3 mode support 4 colour (CMYK) or 6 colour (CMYK + Light Cyan, Light Magenta) ?
-
 
 // Space used for storage - printermemory holds the bitmap file generated from the captured data
 // seedrow is used for enhanced ESC/P2 printer modes where each line is based on preceding line
@@ -551,24 +553,18 @@ int write_png(const char *filename, int width, int height, char *rgb)
     //
     FILE *file = NULL;
 
-    // Check if a blank page - if so ignore it!
-    while (data_found == 0 && end_loop == 0) {
-        // Write image data - 8 bit RGB
-        int x, y, ppos;
-        for (y=0 ; y<height ; y++) {
-            ipos = width * y;
-            for (x=0 ; x<width ; x++) {
-                if (rgb[ipos+x] != WHITE) data_found = 1;
-            }
+    int x, y, ppos;
+    for (y=0 ; y<height && !data_found; y++) {
+        ipos = width * y;
+        for (x=0 ; x<width && !data_found; x++) {
+            if (rgb[ipos+x] != WHITE) data_found = 1;
         }
-        end_loop = 1;
     }
     if (!data_found) return 0; // Nothing to print
 
     if (imageMode == 1 ) {
         // Create raw image in memory for speed
         // Write image data - 8 bit RGB
-        int x, y, ppos;
         // Create raw image in memory
         ppos=0;
         for (y=0 ; y<height ; y++) {
@@ -633,7 +629,6 @@ int write_png(const char *filename, int width, int height, char *rgb)
         }
 
         // Write image data - 8 bit RGB
-        int x, y, ppos;
         for (y=0 ; y<height ; y++) {
             ipos = width * y;
             ppos=0;
@@ -1719,7 +1714,7 @@ int printcharx(unsigned char chr)
 {
     unsigned int adressOfChar = 0;
     unsigned int chr2;
-    int i, fByte;
+    int i, fByte, extendedChar = 0;
     int boldoffset = 0;
     int boldoffset11= 0;
     int italiccount=0;
@@ -1730,6 +1725,11 @@ int printcharx(unsigned char chr)
     int fontDotWidth, fontDotHeight, character_spacing;
 
     chr2 = (unsigned int) chr;
+    if (chr2 >= 160) {
+        extendedChar = 1;
+        chr2 = chr2 - 128; // Normally upper character set - italic version of the lower character set
+        chr = (unsigned char) chr2;
+    }
     adressOfChar = chr2 << 4;  // Multiply with 16 to Get Adress
     hPixelWidth = printerdpih / (float) cdpih;
     vPixelWidth = printerdpiv / (float) cdpiv;
@@ -1765,7 +1765,7 @@ int printcharx(unsigned char chr)
         boldoffset11=boldoffset;
         //printf("%d\n", boldoffset);
     }
-    if (italic==1) {
+    if (italic==1 || extendedChar == 1) {
         italiccount=1;
     }
     test_for_new_paper();
@@ -2322,6 +2322,11 @@ main_loop_for_printing:
                 break;
             case 13:    // cr (0x0d)
                 xpos = marginleftp;
+                if (auto_LF) {
+                    ypos = ypos + line_spacing;
+                    double_width_single_line = 0;
+                    test_for_new_paper();                    
+                }
                 break;
             case 27:    // ESC Escape (do nothing, will be processed later in this code)
                 break;
@@ -2707,29 +2712,38 @@ main_loop_for_printing:
             // Epson ESC/P2 printer code handling
             switch (xd) {
             case 0:    // NULL do nothing
-                if (print_controlcodes) {
+            case 128:
+                if (xd == (int) 0 && print_controlcodes) {
                     print_character(xd);
                 }
                 break;
             case 1:    // SOH do nothing
+            case 129:
                 break;
             case 2:    // STX do nothing
+            case 130:
                 break;
             case 3:    // ETX do nothing
+            case 131:
                 break;
             case 4:    // EOT do nothing
+            case 132:
                 break;
             case 5:    // ENQ do nothing
+            case 133:
                 break;
             case 6:    // ACK do nothing
+            case 134:
                 break;
             case 7:    // BEL do nothing
-                if (print_controlcodes) {
+            case 135:
+                if (xd == (int) 7 && print_controlcodes) {
                     print_character(xd);
                 }
                 break;
             case 8:    // BS (BackSpace)
-                if (print_controlcodes) {
+            case 136:
+                if (xd == (int) 8 && print_controlcodes) {
                     print_character(xd);
                 } else {
                     xposold = xpos;
@@ -2744,12 +2758,17 @@ main_loop_for_printing:
                 }
                 break;
             case 9:    // TAB
-                if (print_controlcodes) {
+            case 137:
+                if (xd == (int) 9 && print_controlcodes) {
                     print_character(xd);
                 } else {
                     curHtab = -1;
                     for (i = 0; i < 32; i++) {
-                        if (marginleftp + hTabulators[i] <= xpos) curHtab = i;
+                       if (marginleftp + hTabulators[i] <= xpos) {
+                            curHtab = i;
+                        } else {
+                            break;
+                        }                    
                     }
                     curHtab++;
                     if (curHtab > 31 || hTabulators[curHtab] == 0) {
@@ -2761,7 +2780,8 @@ main_loop_for_printing:
                 }
                 break;
             case 10:    // lf (0x0a)
-                if (print_controlcodes) {
+            case 138:
+                if (xd == (int) 10 && print_controlcodes) {
                     print_character(xd);
                 } else {
                     ypos = ypos + line_spacing;
@@ -2772,13 +2792,18 @@ main_loop_for_printing:
                 }
                 break;
             case 11:    // VT vertical tab (same like 10)
-                if (print_controlcodes) {
+            case 139:
+                if (xd == (int) 11 && print_controlcodes) {
                     print_character(xd);
                 } else {
                     xpos = marginleftp;
                     curVtab = -1;
                     for (i = (vFUChannel * 16); i < (vFUChannel * 16) + 16; i++) {
-                        if (vTabulators[i] <= ypos) curVtab = i;
+                        if (vTabulators[i] <= ypos) {
+                            curVtab = i;
+                        } else {
+                            break;
+                        }
                     }
                     curVtab++;
                     if (curVtab > (vFUChannel * 16) + 15 || vTabulators[curVtab] == 0) {
@@ -2815,7 +2840,8 @@ main_loop_for_printing:
                 }
                 break;
             case 12:    // form feed (neues blatt)
-                if (print_controlcodes) {
+            case 140:
+                if (xd == (int) 12 && print_controlcodes) {
                     print_character(xd);
                 } else {
                     ypos = pageSetHeight + 1;  // just put it in an out of area position
@@ -2825,14 +2851,21 @@ main_loop_for_printing:
                 }
                 break;
             case 13:    // cr (0x0d)
-                if (print_controlcodes) {
+            case 141:
+                if (xd == (int) 13 && print_controlcodes) {
                     print_character(xd);
                 } else {
                     xpos = marginleftp;
+                    if (auto_LF) {
+                        ypos = ypos + line_spacing;
+                        double_width_single_line = 0;
+                        test_for_new_paper();                        
+                    }
                 }
                 break;
             case 14:    // SO Shift Out (do nothing) Select double Width printing (for one line)
-                if (print_controlcodes) {
+            case 142:
+                if (xd == (int) 14 && print_controlcodes) {
                     print_character(xd);
                 } else {
                     hmi = printerdpih * ((float) 36 / (float) 360); // Reset HMI
@@ -2840,7 +2873,8 @@ main_loop_for_printing:
                 }
                 break;
             case 15:    // SI Shift In (do nothing) Condensed printing on
-                if (print_controlcodes) {
+            case 143:
+                if (xd == (int) 15 && print_controlcodes) {
                     print_character(xd);
                 } else {
                     hmi = printerdpih * ((float) 36 / (float) 360); // Reset HMI
@@ -2852,17 +2886,20 @@ main_loop_for_printing:
                 }
                 break;
             case 16:    // DLE Data Link Escape (do nothing)
+            case 144:
                 break;
             case 17:    // DC1 (Device Control 1)
+            case 145:
                 // Intended to turn on or start an ancillary device, to restore it to
                 // the basic operation mode (see DC2 and DC3), or for any
                 // other device control function.
-                if (print_controlcodes) {
+                if (xd == (int) 17 && print_controlcodes) {
                     print_character(xd);
                 }
                 break;
             case 18:    // DC2 (Device Control 2) Condensed printing off, see 15
-                if (print_controlcodes) {
+            case 146:
+                if (xd == (int) 18 && print_controlcodes) {
                     print_character(xd);
                 } else {
                     hmi = printerdpih * ((float) 36 / (float) 360); // Reset HMI
@@ -2872,16 +2909,18 @@ main_loop_for_printing:
                 }
                 break;
             case 19:    // DC3 (Device Control 3)
+            case 147:
                 // Intended for turning off or stopping an ancillary device. It may be a
                 // secondary level stop such as wait, pause,
                 // stand-by or halt (restored via DC1). Can also perform any other
                 // device control function.
-                if (print_controlcodes) {
+                if (xd == (int) 19 && print_controlcodes) {
                     print_character(xd);
                 }
                 break;
             case 20:    // DC4 (Device Control 4)
-                if (print_controlcodes) {
+            case 148:
+                if (xd == (int) 20 && print_controlcodes) {
                     print_character(xd);
                 } else {
                     // Intended to turn off, stop or interrupt an ancillary device, or for
@@ -2892,28 +2931,35 @@ main_loop_for_printing:
                 }
                 break;
             case 21:    // NAK Negative Acknowledgement (do nothing)
+            case 149:
                 break;
             case 22:    // Syn Synchronus idle (do nothing)
+            case 150:
                 break;
             case 23:    // ETB End Of Transmition Block (do nothing)
+            case 151:
                 break;
             case 24:    // CAN Cancel (do nothing)
+            case 152:
                 // Not implemented - normally wipes the current line of all characters and graphics
-                if (print_controlcodes) {
+                if (xd == (int) 24 && print_controlcodes) {
                     print_character(xd);
                 } else {
                     xpos = marginleftp;
                 }
                 break;
             case 25:    // EM End Of Medium (do nothing)
-                if (print_controlcodes) {
+            case 153:
+                if (xd == (int) 25 && print_controlcodes) {
                     print_character(xd);
                 }
                 break;
             case 26:    // SUB Substitute (do nothing)
+            case 154:
                 break;
             case 27:    // ESC Escape (do nothing, will be processed later in this code)
-                if (print_controlcodes) {
+            case 155:
+                if (xd == (int) 27 && print_controlcodes) {
                     print_character(xd);
                 }
                 break;
@@ -2953,7 +2999,7 @@ main_loop_for_printing:
             }
 
             // ESc Branch
-            if ((xd == (int) 27) && (print_controlcodes == 0) ) {   // ESC v 27 v 1b
+            if ((xd == (int) 27 && print_controlcodes == 0) || xd == (int) 155 ) {   // ESC v 27 v 1b
                 state = read_byte_from_file((char *) &xd);
 
                 switch (xd) {
