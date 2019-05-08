@@ -10,7 +10,7 @@
 #include "dir.c"
 
 /* Conversion program to convert Epson ESC/P printer data to an Adobe PDF file on Linux.
- * v1.4
+ * v1.5
  *
  * v1.0 First Release - taken from the conversion software currently in development for the Retro-Printer module.
  * v1.1 Swithced to using libHaru library to create the PDF file for speed and potential future enhancements - see http://libharu.org/
@@ -18,6 +18,7 @@
  * v1.2 Removed possibility of a stack dump where tries to unlink both imagememory and seedrow
  * v1.3 General code tidy and improve handling of 9 pin printers
  * v1.4 Added Auto-Linefeed configuration, handle extended control codes and bring up to the same standard as v3.2 Retro-Printer Software
+ * v1.5 Speed improvements
  * www.retroprinter.com
  *
  * Relies on libpng and ImageMagick libraries
@@ -420,8 +421,8 @@ void setupColourTable()
 
 void erasepage()
 {
-    int i;
-    for (i = 0; i < pageSetWidth * pageSetHeight; i++) printermemory[i] = WHITE;
+    //clear memory
+    memset(printermemory, WHITE , pageSetWidth * pageSetHeight);
 }
 
 int initialize()
@@ -474,10 +475,13 @@ int initialize()
         fprintf(stderr, "Can't allocate memory for Printer Conversion.\n");
         exit (0);
     }
+    // For Delta Row compression - set aside room to store 4 seed rows (1 per supported colour)
     if (imageMode == 1 ) {
         // Faster method of creating and converting PNG image - stores it in memory, so needs a lot more memory
         imagememory = calloc (3 * (pageSetWidth+1) * pageSetHeight, 1);
         if (imagememory == NULL) {
+            free(printermemory);
+            printermemory=NULL;
             fprintf(stderr, "Can't allocate memory for PNG image.\n");
             exit (0);
         }
@@ -489,6 +493,7 @@ int initialize()
         seedrow = calloc ((pageSetWidth+1) * colourSupport, 1);
         if (seedrow == NULL) {
             free(printermemory);
+            printermemory=NULL;
             fprintf(stderr, "Can't allocate memory for Delta Row Printing.\n");
             exit (0);
         }
@@ -553,6 +558,7 @@ int write_png(const char *filename, int width, int height, char *rgb)
     //
     FILE *file = NULL;
 
+    // Check if a blank page - if so ignore it!
     int x, y, ppos;
     for (y=0 ; y<height && !data_found; y++) {
         ipos = width * y;
@@ -943,14 +949,11 @@ int precedingDot(int x, int y) {
 }
 
 void _clear_seedRow(int seedrowColour) {
+    if (endlesstext == STREAM_STRIP_ESCP2) return;
+    
     // colourSupport seedrows - each pixel is represented by a bit.
-    int bytePointer, seedrowStart, seedrowEnd;
     if (seedrowColour > (colourSupport-1)) seedrowColour = colourSupport-1;
-    seedrowStart = (seedrowColour * pageSetWidth) /8;
-    seedrowEnd = seedrowStart + (pageSetWidth / 8);
-    for (bytePointer = seedrowStart; bytePointer < seedrowEnd; bytePointer++) {
-        seedrow[bytePointer]=0;
-    }
+    memset(seedrow + ((seedrowColour * pageSetWidth) /8), 0 , (pageSetWidth / 8));
 }
 
 void _print_seedRows(float hPixelWidth, float vPixelWidth){
@@ -1314,14 +1317,13 @@ _8pin_line_bitmap_print(int dotColumns, float hPixelWidth, float vPixelWidth,
             if (state == 0) goto raus_8p;
         }
 
-        if ((dotColumns - opr) == 3) opr = opr; // SASCHA - what is this intended to do?
         if (xd) {
-            for (fByte = 0; fByte < 8; fByte++) {
+            for (fByte = ypos; fByte < ypos + 8 * vPixelWidth; fByte+= vPixelWidth) {
                 if (xd & 128) {
-                    if ((adjacentDot == 0) && (precedingDot(xpos, ypos + fByte * vPixelWidth) == 1)) {
+                    if ((adjacentDot == 0) && (precedingDot(xpos, fByte) == 1)) {
                         // Miss out second of two consecutive horizontal dots
                     } else {
-                        putpixelbig(xpos, ypos + fByte * vPixelWidth, hPixelWidth, vPixelWidth);
+                        putpixelbig(xpos, fByte, hPixelWidth, vPixelWidth);
                     }
                 }
                 xd = xd << 1;
@@ -1348,12 +1350,12 @@ _9pin_line_bitmap_print(int dotColumns, float hPixelWidth, float vPixelWidth,
             if (state == 0) goto raus_9p;
         }
         if (xd) {
-            for (xByte = 0; xByte < 8; xByte++) {
+            for (xByte = ypos; xByte < ypos + 8 * vPixelWidth; xByte+= vPixelWidth) {
                 if (xd & 128) {
-                    if ((adjacentDot == 0) && (precedingDot(xpos, ypos + xByte * vPixelWidth) == 1)) {
+                    if ((adjacentDot == 0) && (precedingDot(xpos, xByte) == 1)) {
                         // Miss out second of two consecutive horizontal dots
                     } else {
-                        putpixelbig(xpos, ypos + xByte * vPixelWidth, hPixelWidth, vPixelWidth);
+                        putpixelbig(xpos, xByte, hPixelWidth, vPixelWidth);
                     }
                 }
                 xd = xd << 1;
@@ -1398,12 +1400,12 @@ _24pin_line_bitmap_print(int dotColumns, float hPixelWidth, float vPixelWidth,
                 if (state == 0) goto raus_24p;
             }
             if (xd) {
-                for (xByte = 0; xByte < 8; xByte++) {
+                for (xByte = ypos2; xByte < ypos2 + 8 * vPixelWidth; xByte+= vPixelWidth) {
                     if (xd & 128) {
-                        if ((adjacentDot == 0) && (precedingDot(xpos, ypos2 + xByte * vPixelWidth) == 1)) {
+                        if ((adjacentDot == 0) && (precedingDot(xpos, xByte) == 1)) {
                             // Miss out second of two consecutive horizontal dots
                         } else {
-                            putpixelbig(xpos, ypos2 + xByte * vPixelWidth, hPixelWidth, vPixelWidth);
+                            putpixelbig(xpos, xByte, hPixelWidth, vPixelWidth);
                         }
                     }
                     xd = xd << 1;
@@ -1436,12 +1438,12 @@ _48pin_line_bitmap_print(int dotColumns, float hPixelWidth, float vPixelWidth,
                 if (state == 0) goto raus_48p;
             }
             if (xd) {
-                for (xByte = 0; xByte < 8; xByte++) {
+                for (xByte = ypos2; xByte < ypos2 + 8 * vPixelWidth; xByte+= vPixelWidth) {
                     if (xd & 128) {
-                        if ((adjacentDot == 0) && (precedingDot(xpos, ypos2 + xByte * vPixelWidth) == 1)) {
+                        if ((adjacentDot == 0) && (precedingDot(xpos, xByte) == 1)) {
                             // Miss out second of two consecutive horizontal dots
                         } else {
-                            putpixelbig(xpos, ypos2 + xByte * vPixelWidth, hPixelWidth, vPixelWidth);
+                            putpixelbig(xpos, xByte, hPixelWidth, vPixelWidth);
                         }
                     }
                     xd = xd << 1;
@@ -1774,6 +1776,7 @@ int printcharx(unsigned char chr)
     // -- uses (360 / cpi) x 16 pixel font - default is 10 cpi (36 dots), 12 cpi (30 dots), 15 cpi (24 dots)
     // NOTE : if point size = 8, then subscript/superscript are also 8 point (8/72 inches)
     // character width for proportional fonts is different to full size proportional font.
+    // Does not affect graphics characters
     // TO BE WRITTEN
     if (superscript==1) {
         if (multipoint_mode == 1) {
@@ -1840,8 +1843,8 @@ int printcharx(unsigned char chr)
                 if ((i==3 ) && ((overscore==2) || (overscore==4)) ) xd=255;
             }
 
-            for (fByte = 0; fByte < 8; fByte++) {
-                if (xd & 128) putpixelbig(xpos + fByte * hPixelWidth+italiccount*(7-i), ypos + yposoffset + i * vPixelWidth,
+            for (fByte = xpos + italiccount * (7-i); fByte < xpos + 8 * hPixelWidth + italiccount * (7-i); fByte+= hPixelWidth) {
+                if (xd & 128) putpixelbig(fByte, ypos + yposoffset + i * vPixelWidth,
                                 hPixelWidth + boldoffset, vPixelWidth + boldoffset11);
                 xd = xd << 1;
             }
@@ -1863,8 +1866,8 @@ int printcharx(unsigned char chr)
                 if ((i==0 ) && ((overscore==2) || (overscore==4)) ) xd=255;
                 if ((i==3 ) && ((overscore==2) || (overscore==4)) ) xd=255;
             }
-            for (fByte = 0; fByte < 8; fByte++) {
-                if (xd & 001) putpixelbig(xpos + fByte * hPixelWidth+italiccount*(7-i),ypos + yposoffset+ i * vPixelWidth,
+            for (fByte = xpos + italiccount * (7-i); fByte < xpos + 8 * hPixelWidth + italiccount * (7-i); fByte+= hPixelWidth) {
+                if (xd & 001) putpixelbig(fByte,ypos + yposoffset+ i * vPixelWidth,
                                 hPixelWidth + boldoffset, vPixelWidth + boldoffset11);
                 xd = xd >> 1;
             }
@@ -2708,15 +2711,14 @@ main_loop_for_printing:
 
         } else if ((print_uppercontrolcodes==1) && (xd >= (int) 128) && (xd <= (int) 159)) {
             print_character(xd);
+        } else if ((print_controlcodes==1) && (xd <= (int) 127)) {
+            print_character(xd);
         } else {
             // Epson ESC/P2 printer code handling
             switch (xd) {
             case 0:    // NULL do nothing
             case 128:
-                if (xd == (int) 0 && print_controlcodes) {
-                    print_character(xd);
-                }
-                break;
+                break;             
             case 1:    // SOH do nothing
             case 129:
                 break;
@@ -2737,152 +2739,120 @@ main_loop_for_printing:
                 break;
             case 7:    // BEL do nothing
             case 135:
-                if (xd == (int) 7 && print_controlcodes) {
-                    print_character(xd);
-                }
                 break;
             case 8:    // BS (BackSpace)
             case 136:
-                if (xd == (int) 8 && print_controlcodes) {
-                    print_character(xd);
+                xposold = xpos;
+                hPixelWidth = printerdpih / (float) cdpih;
+                if (letterQuality == 1) {
+                    hPixelWidth = (float) hPixelWidth * (((float) 360 / (float) cpi) / (float) 8);
                 } else {
-                    xposold = xpos;
-                    hPixelWidth = printerdpih / (float) cdpih;
-                    if (letterQuality == 1) {
-                        hPixelWidth = (float) hPixelWidth * (((float) 360 / (float) cpi) / (float) 8);
-                    } else {
-                        hPixelWidth = (float) hPixelWidth * (((float) 120 / (float) cpi) / (float) 8);
-                    }
-                    xpos = xpos - hPixelWidth * 8;
-                    if (xpos < 0) xpos = xposold;
+                    hPixelWidth = (float) hPixelWidth * (((float) 120 / (float) cpi) / (float) 8);
                 }
+                xpos = xpos - hPixelWidth * 8;
+                if (xpos < 0) xpos = xposold;
                 break;
             case 9:    // TAB
             case 137:
-                if (xd == (int) 9 && print_controlcodes) {
-                    print_character(xd);
-                } else {
-                    curHtab = -1;
-                    for (i = 0; i < 32; i++) {
-                       if (marginleftp + hTabulators[i] <= xpos) {
-                            curHtab = i;
-                        } else {
-                            break;
-                        }                    
+                curHtab = -1;
+                for (i = 0; i < 32; i++) {
+                    if (marginleftp + hTabulators[i] <= xpos) {
+                        curHtab = i;
+                    } else {
+                        break;
                     }
-                    curHtab++;
-                    if (curHtab > 31 || hTabulators[curHtab] == 0) {
-                        // No more tab marks
-                    } else if (hTabulators[curHtab] > 0 && hTabulators[curHtab] <= marginrightp) {
-                        // forward to next tab position
-                        xpos = marginleftp + hTabulators[curHtab];
-                    }
+                }
+                curHtab++;
+                if (curHtab > 31 || hTabulators[curHtab] == 0) {
+                    // No more tab marks
+                } else if (hTabulators[curHtab] > 0 && hTabulators[curHtab] <= marginrightp) {
+                    // forward to next tab position
+                    xpos = marginleftp + hTabulators[curHtab];
                 }
                 break;
             case 10:    // lf (0x0a)
             case 138:
-                if (xd == (int) 10 && print_controlcodes) {
-                    print_character(xd);
-                } else {
+                if (endlesstext == STREAM_STRIP_ESCP2 || endlesstext == JOBS_STRIP_ESCP2) {
+                    rawput(10);
+                } else { 
                     ypos = ypos + line_spacing;
                     xpos = marginleftp;
                     double_width_single_line = 0;
                     test_for_new_paper();
-                    break;
                 }
                 break;
             case 11:    // VT vertical tab (same like 10)
             case 139:
-                if (xd == (int) 11 && print_controlcodes) {
-                    print_character(xd);
-                } else {
-                    xpos = marginleftp;
-                    curVtab = -1;
-                    for (i = (vFUChannel * 16); i < (vFUChannel * 16) + 16; i++) {
-                        if (vTabulators[i] <= ypos) {
-                            curVtab = i;
-                        } else {
-                            break;
-                        }
+                xpos = marginleftp;
+                curVtab = -1;
+                for (i = (vFUChannel * 16); i < (vFUChannel * 16) + 16; i++) {
+                    if (vTabulators[i] <= ypos) {
+                        curVtab = i;
+                    } else {
+                        break;
                     }
-                    curVtab++;
-                    if (curVtab > (vFUChannel * 16) + 15 || vTabulators[curVtab] == 0) {
-                        // If all tabs cancelled then acts as a CR
-                        // If no tabs have been set since turn on / ESC @ command, then acts like LF
-                        // If tabs have been set but no more vertical tabs, then acts like FF
-                        if (vTabulatorsCancelled) {
-                            // CR
-                            xpos = marginleftp;
-                        } else if (vTabulatorsSet) {
-                            // FF
-                            ypos = pageSetHeight + 1;  // just put it in an out of area position
-                            test_for_new_paper();
-                            i = 0;
-                            double_width_single_line = 0;
-                        } else {
-                            // LF
-                            curVtab = 0; // No more tab marks
-                            ypos = ypos + line_spacing;
-                            double_width_single_line = 0;
-                        }
-                    } else if (vTabulators[curVtab] > 0) {
-                        // forward to next tab position
-                        // ignore IF print position would be moved to inside the bottom margin
-                        ypos2 = ypos;
-                        ypos = vTabulators[curVtab];
-                        if (ypos > marginbottomp) {
-                            // Do nothing
-                            ypos = ypos2;
-                        } else {
-                            double_width_single_line = 0;
-                        }
+                }
+                curVtab++;
+                if (curVtab > (vFUChannel * 16) + 15 || vTabulators[curVtab] == 0) {
+                    // If all tabs cancelled then acts as a CR
+                    // If no tabs have been set since turn on / ESC @ command, then acts like LF
+                    // If tabs have been set but no more vertical tabs, then acts like FF
+                    if (vTabulatorsCancelled) {
+                        // CR
+                        xpos = marginleftp;
+                    } else if (vTabulatorsSet) {
+                        // FF
+                        ypos = pageSetHeight + 1;  // just put it in an out of area position
+                        test_for_new_paper();
+                        i = 0;
+                        double_width_single_line = 0;
+                    } else {
+                        // LF
+                        curVtab = 0; // No more tab marks
+                        ypos = ypos + line_spacing;
+                        double_width_single_line = 0;
+                    }
+                } else if (vTabulators[curVtab] > 0) {
+                    // forward to next tab position
+                    // ignore IF print position would be moved to inside the bottom margin
+                    ypos2 = ypos;
+                    ypos = vTabulators[curVtab];
+                    if (ypos > marginbottomp) {
+                        // Do nothing
+                        ypos = ypos2;
+                    } else {
+                        double_width_single_line = 0;
                     }
                 }
                 break;
             case 12:    // form feed (neues blatt)
             case 140:
-                if (xd == (int) 12 && print_controlcodes) {
-                    print_character(xd);
-                } else {
-                    ypos = pageSetHeight + 1;  // just put it in an out of area position
-                    test_for_new_paper();
-                    i = 0;
-                    double_width_single_line = 0;
-                }
+                ypos = pageSetHeight + 1;  // just put it in an out of area position
+                test_for_new_paper();
+                i = 0;
+                double_width_single_line = 0;
                 break;
             case 13:    // cr (0x0d)
             case 141:
-                if (xd == (int) 13 && print_controlcodes) {
-                    print_character(xd);
-                } else {
-                    xpos = marginleftp;
-                    if (auto_LF) {
-                        ypos = ypos + line_spacing;
-                        double_width_single_line = 0;
-                        test_for_new_paper();                        
-                    }
+                xpos = marginleftp;
+                if (auto_LF) {
+                    ypos = ypos + line_spacing;
+                    double_width_single_line = 0;
+                    test_for_new_paper();                        
                 }
                 break;
             case 14:    // SO Shift Out (do nothing) Select double Width printing (for one line)
             case 142:
-                if (xd == (int) 14 && print_controlcodes) {
-                    print_character(xd);
-                } else {
-                    hmi = printerdpih * ((float) 36 / (float) 360); // Reset HMI
-                    if (multipoint_mode == 0) double_width_single_line = 1;
-                }
+                hmi = printerdpih * ((float) 36 / (float) 360); // Reset HMI
+                if (multipoint_mode == 0) double_width_single_line = 1;
                 break;
             case 15:    // SI Shift In (do nothing) Condensed printing on
             case 143:
-                if (xd == (int) 15 && print_controlcodes) {
-                    print_character(xd);
-                } else {
-                    hmi = printerdpih * ((float) 36 / (float) 360); // Reset HMI
-                    if (multipoint_mode == 0) {
-                        if (pitch==10) cpi=17.14;
-                        if (pitch==12) cpi=20;
-                        // Add for proportional font = 1/2 width - to be written
-                    }
+                hmi = printerdpih * ((float) 36 / (float) 360); // Reset HMI
+                if (multipoint_mode == 0) {
+                    if (pitch==10) cpi=17.14;
+                    if (pitch==12) cpi=20;
+                    // Add for proportional font = 1/2 width - to be written
                 }
                 break;
             case 16:    // DLE Data Link Escape (do nothing)
@@ -2892,21 +2862,14 @@ main_loop_for_printing:
             case 145:
                 // Intended to turn on or start an ancillary device, to restore it to
                 // the basic operation mode (see DC2 and DC3), or for any
-                // other device control function.
-                if (xd == (int) 17 && print_controlcodes) {
-                    print_character(xd);
-                }
+                // other device control function.            
                 break;
             case 18:    // DC2 (Device Control 2) Condensed printing off, see 15
             case 146:
-                if (xd == (int) 18 && print_controlcodes) {
-                    print_character(xd);
-                } else {
-                    hmi = printerdpih * ((float) 36 / (float) 360); // Reset HMI
-                    if (pitch==10) cpi=10;
-                    if (pitch==12) cpi=12;
-                    // Add for proportional font = full width
-                }
+                hmi = printerdpih * ((float) 36 / (float) 360); // Reset HMI
+                if (pitch==10) cpi=10;
+                if (pitch==12) cpi=12;
+                // Add for proportional font = full width
                 break;
             case 19:    // DC3 (Device Control 3)
             case 147:
@@ -2914,21 +2877,14 @@ main_loop_for_printing:
                 // secondary level stop such as wait, pause,
                 // stand-by or halt (restored via DC1). Can also perform any other
                 // device control function.
-                if (xd == (int) 19 && print_controlcodes) {
-                    print_character(xd);
-                }
                 break;
             case 20:    // DC4 (Device Control 4)
             case 148:
-                if (xd == (int) 20 && print_controlcodes) {
-                    print_character(xd);
-                } else {
-                    // Intended to turn off, stop or interrupt an ancillary device, or for
-                    // any other device control function.
-                    // Also turns off double-width printing for one line
-                    hmi = printerdpih * ((float) 36 / (float) 360); // Reset HMI
-                    double_width_single_line = 0;
-                }
+                // Intended to turn off, stop or interrupt an ancillary device, or for
+                // any other device control function.
+                // Also turns off double-width printing for one line
+                hmi = printerdpih * ((float) 36 / (float) 360); // Reset HMI
+                double_width_single_line = 0;
                 break;
             case 21:    // NAK Negative Acknowledgement (do nothing)
             case 149:
@@ -2942,26 +2898,16 @@ main_loop_for_printing:
             case 24:    // CAN Cancel (do nothing)
             case 152:
                 // Not implemented - normally wipes the current line of all characters and graphics
-                if (xd == (int) 24 && print_controlcodes) {
-                    print_character(xd);
-                } else {
-                    xpos = marginleftp;
-                }
+                xpos = marginleftp;
                 break;
             case 25:    // EM End Of Medium (do nothing)
             case 153:
-                if (xd == (int) 25 && print_controlcodes) {
-                    print_character(xd);
-                }
                 break;
             case 26:    // SUB Substitute (do nothing)
             case 154:
                 break;
             case 27:    // ESC Escape (do nothing, will be processed later in this code)
             case 155:
-                if (xd == (int) 27 && print_controlcodes) {
-                    print_character(xd);
-                }
                 break;
             case 28:    // FS File Separator (do nothing)
                 break;
@@ -2999,7 +2945,7 @@ main_loop_for_printing:
             }
 
             // ESc Branch
-            if ((xd == (int) 27 && print_controlcodes == 0) || xd == (int) 155 ) {   // ESC v 27 v 1b
+            if (xd == (int) 27 || xd == (int) 155 ) {   // ESC v 27 v 1b
                 state = read_byte_from_file((char *) &xd);
 
                 switch (xd) {
@@ -3314,6 +3260,8 @@ main_loop_for_printing:
                 case 'x':    // Select LQ or draft ESC x n
                     // n can be 0 or 48 for draft
                     // and 1 or 49 for letter quality
+                    // NB cancels double strike printing whilst in LQ mode (turned back on after cancel LQ Mode)
+                    // Not currently implemented
                     state = read_byte_from_file((char *) &nL);
                     if ((nL==1) || (nL==49)) {
                         letterQuality = 1;
