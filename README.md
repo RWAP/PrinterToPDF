@@ -15,10 +15,13 @@ RWAP Software
 January 2019
 
 PRE-REQUISITES
-You will need libpng, ImageMagick and libHARU installed on Linux. 
+You will need libpng, ImageMagick, SDL libHARU installed on Linux. 
 
 For Debian (on the Raspberry Pi), this means running;
 <code>apt-get install libpng ImageMagick</code>
+
+sudo apt-get install libsdl1.2-dev
+sudo apt-get install libsdl-image1.2-dev
 
 LibHaru has to be downloaded from source and compiled:
 http://libharu.org/
@@ -26,14 +29,27 @@ http://libharu.org/
 You may also be able to use : <code>sudo apt install libhpdf-2.2.1 libhpdf-dev</code> although the latest version is v2.3.0.
 
 
-COMPILING
-On some versions of Linux, you will need to change the reference in line 6 to read:
+Ensure you copy BOTH dir.c and PrinterConvert.c to your working directory
 
-<code>#include "/usr/include/SDL/SDL.h"</code>
+COMPILING
+On some versions of Linux, you will need to change the reference in line 8 to read:
+<code>#include "/usr/local/include/hpdf.h"</code>
+
+and on line 9 to read:
+<code>#include "/usr/local/include/SDL/SDL.h"</code>
+
 
 To compile the program use the following command:
 
-<code>gcc retroprinter.c `sdl-config --cflags --libs` -o retroprinter -lrt -lhpdf -lpng</code>
+<code>gcc PrinterConvert.c `sdl-config --cflags --libs` -o printerToPDF -lrt -lhpdf -lpng</code>
+
+
+FOr testing, store the file (called test1.prn) to be converted in the same directory as printerToPDF (eg /home/printerToPDF)
+
+You can then convert it with:
+./printerToPDF 3 0 font2/SIEMENS.C16 1 sdloff /home/printerToPDF/output
+
+You could easily change the code to pass the input filename as a parameter.
 
 
 DISCUSSION

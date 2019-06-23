@@ -5,7 +5,7 @@
 #include <time.h>
 #include <png.h>
 #include <setjmp.h>
-#include "/usr/local/include/hpdf.h"
+#include "/usr/include/hpdf.h"
 #include "/usr/include/SDL/SDL.h"
 #include "dir.c"
 
@@ -19,6 +19,7 @@
  * v1.3 General code tidy and improve handling of 9 pin printers
  * v1.4 Added Auto-Linefeed configuration, handle extended control codes and bring up to the same standard as v3.2 Retro-Printer Software
  * v1.5 Speed improvements
+ * v1.6 Minor changes to instructions and set up INPUT_FILENAME as a definition
  * www.retroprinter.com
  *
  * Relies on libpng and ImageMagick libraries
@@ -32,6 +33,7 @@
 // Configuration files - these are simple files with flags
 #define LINEFEED_CONFIG     "/root/config/linefeed_ending"          // Unix, Windows or Mac line feeds in conversion
 #define PATH_CONFIG         "/root/config/output_path"              // default path for output files
+#define INPUT_FILENAME      "./Test1.prn"                           // Name of file to be converted
 
 int pageSize;                               // Sets up page size - see initialize() for details
 int cpi = 10;                               // PICA is standard
@@ -504,7 +506,7 @@ int initialize()
     *  example is for reading from an input file called ./Test1.prn
     *  The routine is not error trapped at present
     */
-    inputFile = fopen("./Test1.prn", "r");
+    inputFile = fopen(INPUT_FILENAME, "r");
     if (inputFile == NULL) return -1;
 }
 
@@ -526,11 +528,11 @@ int read_byte_from_file (char *xd)
             break;
         case 1:
             // MSB is set byte 7 to 0
-            xd = xd & 127;
+            xd = (int) xd & 127;
             break;
         case 2:
             // MSB is set byte 7 to 1
-            xd = xd | 128;
+            xd = (int) xd | 128;
             break;
     }
     return feof(inputFile)-1;
@@ -949,8 +951,6 @@ int precedingDot(int x, int y) {
 }
 
 void _clear_seedRow(int seedrowColour) {
-    if (endlesstext == STREAM_STRIP_ESCP2) return;
-    
     // colourSupport seedrows - each pixel is represented by a bit.
     if (seedrowColour > (colourSupport-1)) seedrowColour = colourSupport-1;
     memset(seedrow + ((seedrowColour * pageSetWidth) /8), 0 , (pageSetWidth / 8));
@@ -2086,7 +2086,7 @@ int convertUnixWinMac(char * source,char * destination)
       return -1;
     }
     if (NULL==destinationFile){
-      printf("Could not open raw file for reading ---> %s\n",destination);
+      printf("Could not open raw file for writing ---> %s\n",destination);
       return -1;
     }
     bytex=fgetc(sourceFile);
@@ -2166,12 +2166,9 @@ int main(int argc, char *args[])
 
     cpulimit();
     if (argc < 5) {
-        printf
-            ("Usage: ./PrinterConvert <divisor> <font> <font_direction> <sdl> <path> \n\n");
-
+        printf("Usage: ./PrinterConvert <divisor> <font> <font_direction> <sdl> <path> \n\n");
         printf("Usage: ./PrinterConvert 4 3 font2/SIEMENS.C16 1 sdlon /home/pi/data\n \n");
-        printf
-            ("divisor=30         --> reduce sdl display to 30% of original size\n");
+        printf("divisor=30  --> reduce sdl display to 30 percent of original size\n");
         printf("font=font2/SIEMENS.C16      --> rload this font in font memory area\n");
         printf("font_direction=1   --> 0=lsb left 1=lsb right\n");
         printf("sdl=sdlon          --> display printout in sdl window\n");
@@ -2234,7 +2231,7 @@ int main(int argc, char *args[])
     strcpy(patheps, path);
     strcpy(pathpdf, path);
     
-    strcat(pathraw,   "raw/");
+    strcat(pathraw,   "");
     strcat(pathpng,   "png/");
     strcat(pathpdf,   "pdf/");
     strcat(patheps,   "eps/");
@@ -2287,7 +2284,7 @@ int main(int argc, char *args[])
         SDL_UpdateRect(display, 0, 0, 0, 0);
     }
 
-main_loop_for_printing:
+main_loop_for_printing:    
     xpos = marginleftp;
     ypos = margintopp;
     if (sdlon) erasesdl();
@@ -2772,14 +2769,10 @@ main_loop_for_printing:
                 break;
             case 10:    // lf (0x0a)
             case 138:
-                if (endlesstext == STREAM_STRIP_ESCP2 || endlesstext == JOBS_STRIP_ESCP2) {
-                    rawput(10);
-                } else { 
-                    ypos = ypos + line_spacing;
-                    xpos = marginleftp;
-                    double_width_single_line = 0;
-                    test_for_new_paper();
-                }
+                ypos = ypos + line_spacing;
+                xpos = marginleftp;
+                double_width_single_line = 0;
+                test_for_new_paper();
                 break;
             case 11:    // VT vertical tab (same like 10)
             case 139:
@@ -4092,11 +4085,11 @@ main_loop_for_printing:
 
     if (outputFormatText == 0) {
         // No end of line conversion required
-        sprintf(filenameX, "cp  %s*.raw  %s ", pathraw,patheps);
+        sprintf(filenameX, "cp  %s  %s ", INPUT_FILENAME,patheps);
         printf("command = %s \n", filenameX);
         system(filenameX);
     } else {
-        sprintf(filenameX, "%s%d.raw", pathraw,page);
+        sprintf(filenameX, "%s", INPUT_FILENAME);
         sprintf(filenameY, "%s%d.eps", patheps,page);
         convertUnixWinMac(filenameX,filenameY);
     }
@@ -4105,16 +4098,6 @@ main_loop_for_printing:
         sprintf(filenameX, "%spage%d.png", pathpng, page);
         sprintf(filenameY, "%spage%d.pdf", pathpdf, page);
         write_pdf(filenameX, filenameY, pageSetWidth, pageSetHeight);
-        page++;
-        if (page > 199) {
-            page = dirX(pathraw);
-            reduce_pages(page, pathraw);
-            page = dirX(pathpng);
-            reduce_pages(page, pathpng);
-            page = dirX(pathpdf);
-            reduce_pages(page, pathpdf);
-            page = dirX(pathpdf) + 1;
-        }
     }
 
     if ((fp != NULL)) {
@@ -4134,9 +4117,6 @@ main_loop_for_printing:
         }
         exit(0);
     }
-
-    // sleep(1);
-    goto main_loop_for_printing;
 
   raus:
     return 0;
