@@ -20,6 +20,7 @@
  * v1.4 Added Auto-Linefeed configuration, handle extended control codes and bring up to the same standard as v3.2 Retro-Printer Software
  * v1.5 Speed improvements
  * v1.6 Minor changes to instructions and set up INPUT_FILENAME as a definition
+ * v1.6.1 Changed usage instructions
  * www.retroprinter.com
  *
  * Relies on libpng and ImageMagick libraries
@@ -2166,14 +2167,13 @@ int main(int argc, char *args[])
 
     cpulimit();
     if (argc < 5) {
-        printf("Usage: ./PrinterConvert <divisor> <font> <font_direction> <sdl> <path> \n\n");
-        printf("Usage: ./PrinterConvert 4 3 font2/SIEMENS.C16 1 sdlon /home/pi/data\n \n");
+        printf("Usage: ./printerToPDF <divisor> <font> <font_direction> <sdl> <path> \n\n");
+        printf("Usage: ./printerToPDF 4 3 font2/SIEMENS.C16 1 sdlon /home/pi/data\n \n");
         printf("divisor=30  --> reduce sdl display to 30 percent of original size\n");
         printf("font=font2/SIEMENS.C16      --> rload this font in font memory area\n");
         printf("font_direction=1   --> 0=lsb left 1=lsb right\n");
         printf("sdl=sdlon          --> display printout in sdl window\n");
         printf("path=/home/pi/data --> store all in this directory\n");
-
         goto raus;
     }
     printf("\n");
