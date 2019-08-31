@@ -10,7 +10,7 @@
 #include "dir.c"
 
 /* Conversion program to convert Epson ESC/P printer data to an Adobe PDF file on Linux.
- * v1.5
+ * v1.6.2
  *
  * v1.0 First Release - taken from the conversion software currently in development for the Retro-Printer module.
  * v1.1 Swithced to using libHaru library to create the PDF file for speed and potential future enhancements - see http://libharu.org/
@@ -21,6 +21,7 @@
  * v1.5 Speed improvements
  * v1.6 Minor changes to instructions and set up INPUT_FILENAME as a definition
  * v1.6.1 Changed usage instructions
+ * v1.6.2 Minor bug fix to the use of letter quality
  * www.retroprinter.com
  *
  * Relies on libpng and ImageMagick libraries
@@ -1744,7 +1745,7 @@ int printcharx(unsigned char chr)
     if (letterQuality == 1) {
         // LETTER QUALITY 360 x 144 dpi
         // -- uses (360 / cpi) x 24 pixel font - default is 10 cpi (36 dots), 12 cpi (10 dots), 15 cpi (24 dots)
-        fontDotWidth = (float) hPixelWidth * (((float) 360 / (float) cpi) / (float) 8);
+        fontDotWidth = (float) hPixelWidth * (((float) 360 / (float) cpi) / (float) 24);
         fontDotHeight = (float) vPixelWidth * ((float) charHeight / (float) 16);
         if (chrSpacing > 0) character_spacing = printerdpih * ((float) chrSpacing / (float) 180);
     } else {
@@ -1931,7 +1932,7 @@ int print_space(int showUnderline)
     if (letterQuality == 1) {
         // LETTER QUALITY 360 x 144 dpi
         // -- uses (360 / cpi) x 24 pixel font - default is 10 cpi (36 dots), 12 cpi (10 dots), 15 cpi (24 dots)
-        fontDotWidth = (float) hPixelWidth * (((float) 360 / (float) cpi) / (float) 8);
+        fontDotWidth = (float) hPixelWidth * (((float) 360 / (float) cpi) / (float) 24);
         fontDotHeight = (float) vPixelWidth * (float) charHeight / (float) 16;
         if (chrSpacing > 0) character_spacing = printerdpih * ((float) chrSpacing / (float) 180);
     } else {
@@ -2742,7 +2743,7 @@ main_loop_for_printing:
                 xposold = xpos;
                 hPixelWidth = printerdpih / (float) cdpih;
                 if (letterQuality == 1) {
-                    hPixelWidth = (float) hPixelWidth * (((float) 360 / (float) cpi) / (float) 8);
+                    hPixelWidth = (float) hPixelWidth * (((float) 360 / (float) cpi) / (float) 24);
                 } else {
                     hPixelWidth = (float) hPixelWidth * (((float) 120 / (float) cpi) / (float) 8);
                 }
@@ -2920,7 +2921,7 @@ main_loop_for_printing:
                 vPixelWidth = printerdpiv / (float) cdpiv;
                 int charHeight = 24;
                 if (letterQuality == 1) {
-                    hPixelWidth = (float) hPixelWidth * (((float) 360 / (float) cpi) / (float) 8);
+                    hPixelWidth = (float) hPixelWidth * (((float) 360 / (float) cpi) / (float) 24);
                     vPixelWidth = (float) vPixelWidth * ((float) charHeight / (float) 16);
                 } else {
                     hPixelWidth = (float) hPixelWidth * (((float) 120 / (float) cpi) / (float) 8);
