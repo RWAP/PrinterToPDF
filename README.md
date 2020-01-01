@@ -41,10 +41,10 @@ and on line 9 to read:
 
 To compile the program use the following command:
 
-<code>gcc PrinterConvert.c ```sdl-config --cflags --libs``` -o printerToPDF -lrt -lhpdf -lpng</code>
+```gcc PrinterConvert.c `sdl-config --cflags --libs` -o printerToPDF -lrt -lhpdf -lpng```
 
 
-FOr testing, store the file (called test1.prn) to be converted in the same directory as printerToPDF (eg /home/printerToPDF)
+For testing, store the file (called test1.prn) to be converted in the same directory as printerToPDF (eg /home/printerToPDF)
 
 You can then convert it with:
 ./printerToPDF 3 0 font2/SIEMENS.C16 1 sdloff /home/printerToPDF/output
