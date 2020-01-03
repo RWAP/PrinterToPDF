@@ -9,6 +9,13 @@
 #include "/usr/include/SDL/SDL.h"
 #include "dir.c"
 
+// default to page_size 0, A4
+#ifdef PAPER_LETTER
+  #define PAPER 3
+#else
+  #define PAPER 0
+#endif
+
 /* Conversion program to convert Epson ESC/P printer data to an Adobe PDF file on Linux.
  * v1.6.2
  *
@@ -434,7 +441,7 @@ int initialize()
     // Set page size for input file
     // Based it on support for 720dpi (24 pin printers)
     // All settings have to be in inches - 1 mm = (1/25.4)"
-    pageSize = 0;
+    pageSize = PAPER;
     
     // Choose PNG Generation mode - 1 = in memory (fast but uses a lot more memory), 2 = use external file (slower, but less memory)
     int imageMode = 1;
@@ -446,8 +453,8 @@ int initialize()
         pageSetHeight = 8417; // 720 * 11.69"
         defaultMarginLeftp = 85; // 720 x 3mm
         defaultMarginRightp = pageSetWidth - 85; // 720 x 3mm
-        defaultMarginTopp = 241; // 720 x 8.5mm
-        defaultMarginBottomp = pageSetHeight - 382; // 720 x 13.5mm
+        defaultMarginTopp = 85; // 720 x 3mm
+        defaultMarginBottomp = pageSetHeight - 85; // 720 x 3mm
         break;
     case 1:
         // A4 Landscape
@@ -465,6 +472,15 @@ int initialize()
         defaultMarginRightp = pageSetWidth - 283; // 720 x 2.5mm
         defaultMarginTopp = 71; // 720 x 10mm
         defaultMarginBottomp = pageSetHeight - 71; // 720 x 10mm
+        break;
+    case 3:
+        // US Letter
+        pageSetWidth = 6120; // 720 * 8.5"
+        pageSetHeight = 7920; // 720 * 11"
+        defaultMarginLeftp = 85; // 720 x 3mm
+        defaultMarginRightp = pageSetWidth - 85; // 720 x 3mm
+        defaultMarginTopp = 22; // 720 * 1/32"
+        defaultMarginBottomp = pageSetHeight - 22; // 720 * 1/32"
         break;
     }
 
