@@ -9,13 +9,6 @@
 #include "/usr/include/SDL/SDL.h"
 #include "dir.c"
 
-// default to page_size 0, A4
-#ifdef PAPER_LETTER
-  #define PAPER 3
-#else
-  #define PAPER 0
-#endif
-
 /* Conversion program to convert Epson ESC/P printer data to an Adobe PDF file on Linux.
  * v1.6.2
  *
@@ -441,10 +434,12 @@ int initialize()
     // Set page size for input file
     // Based it on support for 720dpi (24 pin printers)
     // All settings have to be in inches - 1 mm = (1/25.4)"
-    pageSize = PAPER;
-    
+    pageSize = 3;
+
     // Choose PNG Generation mode - 1 = in memory (fast but uses a lot more memory), 2 = use external file (slower, but less memory)
     int imageMode = 1;
+
+    char* dims = getenv("PAPER_DIMS");
 
     switch (pageSize) {
     case 0:
@@ -474,13 +469,30 @@ int initialize()
         defaultMarginBottomp = pageSetHeight - 71; // 720 x 10mm
         break;
     case 3:
-        // US Letter
-        pageSetWidth = 6120; // 720 * 8.5"
-        pageSetHeight = 7920; // 720 * 11"
-        defaultMarginLeftp = 85; // 720 x 3mm
-        defaultMarginRightp = pageSetWidth - 85; // 720 x 3mm
-        defaultMarginTopp = 22; // 720 * 1/32"
-        defaultMarginBottomp = pageSetHeight - 22; // 720 * 1/32"
+        if (strlen(dims) > 0) {
+          char* pw = strtok(dims, ",");
+          char* ph = strtok(NULL, ",");
+          char* ml = strtok(NULL, ",");
+          char* mr = strtok(NULL, ",");
+          char* mt = strtok(NULL, ",");
+          char* mb = strtok(NULL, ",");
+
+          pageSetWidth = atoi(pw);
+          pageSetHeight = atoi(ph);
+
+          defaultMarginLeftp = atoi(ml);
+          defaultMarginRightp = pageSetWidth - atoi(mr);
+          defaultMarginTopp = atoi(mt);
+          defaultMarginBottomp = pageSetHeight - atoi(mb);
+        } else {
+          // Set in Environment, defaults to US Letter, edge to edge
+          pageSetWidth = 6120; // 720 * 8.5"
+          pageSetHeight = 7920; // 720 * 11"
+          defaultMarginLeftp = 85;
+          defaultMarginRightp = pageSetWidth - 85;
+          defaultMarginTopp = 22;
+          defaultMarginBottomp = pageSetHeight - 22;
+        }
         break;
     }
 
