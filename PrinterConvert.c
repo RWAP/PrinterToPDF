@@ -509,7 +509,11 @@ int initialize()
     *  The routine is not error trapped at present
     */
     inputFile = fopen(INPUT_FILENAME, "r");
-    if (inputFile == NULL) return -1;
+    if (inputFile == NULL)
+    {
+        fprintf(stderr, "Failed to open input file: '%s'\n", INPUT_FILENAME);
+        return -1;
+    }
 }
 
 int read_byte_from_file (char *xd)
