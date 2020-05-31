@@ -533,11 +533,11 @@ int read_byte_from_file (char *xd)
             // No change
             break;
         case 1:
-            // MSB is set byte 7 to 0
+            // MSB setting clears bit 7
             xd = (int) xd & 127;
             break;
         case 2:
-            // MSB is set byte 7 to 1
+            // MSB setting forces bit 7 to 1
             xd = (int) xd | 128;
             break;
     }
