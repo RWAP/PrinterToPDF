@@ -53,4 +53,4 @@ You could easily change the code to pass the input filename as a parameter.
 
 
 DISCUSSION
-For general discussion about the PrinterToPDF software and the Retro-Printer project which forms the basis for this conversion software, please visit the forums - http://forum.retroprinter.com
+For general discussion about the PrinterToPDF software and the Retro-Printer project which forms the basis for this conversion software, please visit the forums - https://www.retroprinter-support.com/viewforum.php?f=10
