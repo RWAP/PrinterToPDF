@@ -10,7 +10,7 @@
 #include "dir.c"
 
 /* Conversion program to convert Epson ESC/P printer data to an Adobe PDF file on Linux.
- * v1.6.2
+ * v1.6.3
  *
  * v1.0 First Release - taken from the conversion software currently in development for the Retro-Printer module.
  * v1.1 Swithced to using libHaru library to create the PDF file for speed and potential future enhancements - see http://libharu.org/
@@ -22,6 +22,8 @@
  * v1.6 Minor changes to instructions and set up INPUT_FILENAME as a definition
  * v1.6.1 Changed usage instructions
  * v1.6.2 Minor bug fix to the use of letter quality
+ * v1.6.3 Improve read_byte_from_file() as fseek and ftell not required (were needed for Retro-Printer Module implementation)
+ *        Improve comments on MSB Setting to clarify usage
  * www.retroprinter.com
  *
  * Relies on libpng and ImageMagick libraries
@@ -46,6 +48,7 @@ int proportionalSpacing = 0;                // Proportional Mode (not implemente
 int imageMode = 1;                          // Whether to use faster in memory conversion or file conversion
 int colourSupport = 6;                      // Does the ESC.2 / ESC.3 mode support 4 colour (CMYK) or 6 colour (CMYK + Light Cyan, Light Magenta) ?
 int auto_LF = 0;                            // Whether we should process a CR on its own as a line feed
+int step = 0;
 // END OF CONFIGURATION OPTIONS
 
 int pageSetWidth;
@@ -519,13 +522,6 @@ int initialize()
 int read_byte_from_file (char *xd)
 {
     // This needs to be written to read each byte from specified file
-    int c=0;
-    unsigned long currentpos,endpos;
-
-    currentpos = ftell(inputFile);
-    fseek(inputFile, 0, SEEK_END);
-    endpos = ftell(inputFile);
-    fseek(inputFile, currentpos, SEEK_SET);
     *xd=fgetc(inputFile);
 
     switch (msbsetting) {
@@ -541,7 +537,7 @@ int read_byte_from_file (char *xd)
             xd = (int) xd | 128;
             break;
     }
-    return feof(inputFile)-1;
+    return feof(inputFile) ? 0 : -1;
 }
 
 /*
@@ -3108,7 +3104,7 @@ main_loop_for_printing:
                 case 'e':    // ESC e m n, set fixed tab increment
                     state = read_byte_from_file((char *) &m);
                     state = read_byte_from_file((char *) &nL);
-                    int step = nL;
+                    step = nL;
                     if (m == 0) {
                         // Set vertical tabs every n lines
                         if (nL * line_spacing < pageSetHeight) {
