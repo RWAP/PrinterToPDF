@@ -52,5 +52,14 @@ You can then convert it with:
 You could easily change the code to pass the input filename as a parameter.
 
 
+IMPORTANT NOTE
+The ESC/P standard and ESC/P2 standard are different in how they handle line spacing.  The ESC/P standard uses 1/72" units, whereas the later ESC/P2 standard uses 1/60" units.
+
+As a result the line spacing may be incorrect if used with programs which expect a 9 pin (ESC/P) printer.
+
+If the produced output appears elongated (or has apparent extra line feeds), try changing the setting in PrinterConvert.c on line 45 to read:
+<code>int needles = 9;</code>
+
+
 DISCUSSION
 For general discussion about the PrinterToPDF software and the Retro-Printer project which forms the basis for this conversion software, please visit the forums - https://www.retroprinter-support.com/viewforum.php?f=10
