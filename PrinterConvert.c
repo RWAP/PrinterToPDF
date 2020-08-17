@@ -10,7 +10,7 @@
 #include "dir.c"
 
 /* Conversion program to convert Epson ESC/P printer data to an Adobe PDF file on Linux.
- * v1.6.3
+ * v1.6.4
  *
  * v1.0 First Release - taken from the conversion software currently in development for the Retro-Printer module.
  * v1.1 Swithced to using libHaru library to create the PDF file for speed and potential future enhancements - see http://libharu.org/
@@ -24,6 +24,12 @@
  * v1.6.2 Minor bug fix to the use of letter quality
  * v1.6.3 Improve read_byte_from_file() as fseek and ftell not required (were needed for Retro-Printer Module implementation)
  *        Improve comments on MSB Setting to clarify usage
+ * v1.6.4 - 8 bit characters are enabled by default. You can change this back to italics by commenting out the #define ITALIC_CHARS_PRINTABLE
+ *        - Default margins for A4 paper sizes are now 10 mm each side and 20 mm on the left (portrait) or the top (landscape)
+ *        - The name of the file to be converted can be passed on the command line as last argument
+ *        - read_byte_from_file() didn't manipulate the data but the address of the data
+ *        - Superscript and subscript should look better now
+ *        - Bug with unexpected infinite loop fixed
  * www.retroprinter.com
  *
  * Relies on libpng and ImageMagick libraries
@@ -39,6 +45,9 @@
 #define PATH_CONFIG         "/root/config/output_path"              // default path for output files
 #define INPUT_FILENAME      "./Test1.prn"                           // Name of file to be converted
 
+// Define to treat ASCII 160-255 as normal characters instead of italic
+#define ITALIC_CHARS_PRINTABLE
+
 int pageSize;                               // Sets up page size - see initialize() for details
 int cpi = 10;                               // PICA is standard
 int pitch = 10;                             //Same as cpi but will retain its value when condensed printing is switched on
@@ -50,6 +59,8 @@ int colourSupport = 6;                      // Does the ESC.2 / ESC.3 mode suppo
 int auto_LF = 0;                            // Whether we should process a CR on its own as a line feed
 int step = 0;
 // END OF CONFIGURATION OPTIONS
+
+const char* input_filename = INPUT_FILENAME;
 
 int pageSetWidth;
 int pageSetHeight;
@@ -120,7 +131,7 @@ int outline_printing       = 0;         //Outline printing not yet implemeneted
 int shadow_printing        = 0;         //Shadow printing not yet implemented
 
 int print_controlcodes     = 0;
-int print_uppercontrolcodes= 0;
+int print_uppercontrolcodes= 1;
 
 int graphics_mode          = 0;
 int microweave_printing    = 0;
@@ -440,26 +451,26 @@ int initialize()
     pageSize = 0;
     
     // Choose PNG Generation mode - 1 = in memory (fast but uses a lot more memory), 2 = use external file (slower, but less memory)
-    int imageMode = 1;
+    imageMode = 1;
 
     switch (pageSize) {
     case 0:
-        // A4
+        // A4 Portrait
         pageSetWidth = 5954; // 720 * 8.27"
         pageSetHeight = 8417; // 720 * 11.69"
-        defaultMarginLeftp = 85; // 720 x 3mm
-        defaultMarginRightp = pageSetWidth - 85; // 720 x 3mm
-        defaultMarginTopp = 241; // 720 x 8.5mm
-        defaultMarginBottomp = pageSetHeight - 382; // 720 x 13.5mm
+        defaultMarginLeftp = 567; // 720 x 20mm
+        defaultMarginRightp = pageSetWidth - 284; // 720 x 10mm
+        defaultMarginTopp = 284; // 720 x 10mm
+        defaultMarginBottomp = pageSetHeight - 284; // 720 x 10mm
         break;
     case 1:
         // A4 Landscape
         pageSetWidth = 8417; // 720 * 11.69"
         pageSetHeight = 5954; // 720 * 8.27"
-        defaultMarginLeftp = 85; // 720 x 3mm
-        defaultMarginRightp = pageSetWidth - 85; // 720 x 3mm
-        defaultMarginTopp = 241; // 720 x 8.5mm
-        defaultMarginBottomp = pageSetHeight - 382; // 720 x 13.5mm
+        defaultMarginLeftp = 284; // 720 x 10mm
+        defaultMarginRightp = pageSetWidth - 284; // 720 x 10mm
+        defaultMarginTopp = 567; // 720 x 20mm
+        defaultMarginBottomp = pageSetHeight - 284; // 720 x 10mm
         break;
     case 2:
         pageSetWidth = 5811; // 720 * 205mm
@@ -511,17 +522,19 @@ int initialize()
     *  example is for reading from an input file called ./Test1.prn
     *  The routine is not error trapped at present
     */
-    inputFile = fopen(INPUT_FILENAME, "r");
+    inputFile = fopen(input_filename, "r");
     if (inputFile == NULL)
     {
-        fprintf(stderr, "Failed to open input file: '%s'\n", INPUT_FILENAME);
+        fprintf(stderr, "Failed to open input file: '%s'\n", input_filename);
         return -1;
     }
+
 }
 
 int read_byte_from_file (char *xd)
 {
     // This needs to be written to read each byte from specified file
+
     *xd=fgetc(inputFile);
 
     switch (msbsetting) {
@@ -530,13 +543,14 @@ int read_byte_from_file (char *xd)
             break;
         case 1:
             // MSB setting clears bit 7
-            xd = (int) xd & 127;
+            *xd = (int) *xd & 127;
             break;
         case 2:
             // MSB setting forces bit 7 to 1
-            xd = (int) xd | 128;
+            *xd = (int) *xd | 128;
             break;
     }
+
     return feof(inputFile) ? 0 : -1;
 }
 
@@ -1729,11 +1743,13 @@ int printcharx(unsigned char chr)
     int fontDotWidth, fontDotHeight, character_spacing;
 
     chr2 = (unsigned int) chr;
+#ifndef ITALIC_CHARS_PRINTABLE
     if (chr2 >= 160) {
         extendedChar = 1;
         chr2 = chr2 - 128; // Normally upper character set - italic version of the lower character set
         chr = (unsigned char) chr2;
     }
+#endif /* defined ITALIC_CHARS_PRINTABLE */
     adressOfChar = chr2 << 4;  // Multiply with 16 to Get Adress
     hPixelWidth = printerdpih / (float) cdpih;
     vPixelWidth = printerdpiv / (float) cdpiv;
@@ -1787,7 +1803,7 @@ int printcharx(unsigned char chr)
             vPixelWidth=vPixelWidth*divisor;
             yposoffset=2;
         } else {
-            fontDotWidth = (float) hPixelWidth * (((float) 360 / (float) cpi) / (float) 8);
+            //fontDotWidth = (float) hPixelWidth * (((float) 360 / (float) cpi) / (float) 8);
             fontDotHeight = vPixelWidth;
             yposoffset=2;
         }
@@ -1796,10 +1812,10 @@ int printcharx(unsigned char chr)
             // Use nearest to 2/3
             divisor=2.0/3.0;
             vPixelWidth=vPixelWidth*divisor;
-            yposoffset=8;
+            yposoffset=24;
         } else {
             fontDotHeight = vPixelWidth;
-            yposoffset=8;
+            yposoffset=24;
         }
     }
 
@@ -2168,13 +2184,14 @@ int main(int argc, char *args[])
 
     cpulimit();
     if (argc < 5) {
-        printf("Usage: ./printerToPDF <divisor> <font> <font_direction> <sdl> <path> \n\n");
+        printf("Usage: ./printerToPDF <divisor> <font> <font_direction> <sdl> <path> <file>\n\n");
         printf("Usage: ./printerToPDF 4 3 font2/SIEMENS.C16 1 sdlon /home/pi/data\n \n");
         printf("divisor=30  --> reduce sdl display to 30 percent of original size\n");
         printf("font=font2/SIEMENS.C16      --> rload this font in font memory area\n");
         printf("font_direction=1   --> 0=lsb left 1=lsb right\n");
         printf("sdl=sdlon          --> display printout in sdl window\n");
         printf("path=/home/pi/data --> store all in this directory\n");
+        printf("file=./Test1.prn   --> file to convert\n");
         goto raus;
     }
     printf("\n");
@@ -2213,10 +2230,18 @@ int main(int argc, char *args[])
 
     printf("delays around ack: t1=%d    t2=%d    t3=%d    t4=%d    t5=%d\n",t1,t2,t3,t4,t5);
 
-    // Grab the path offset
-    strcpy(path, args[6]);
+    if (argc >= 8) {
+        input_filename = args[7];
+    }
 
-    if (path[0] != '/') {
+    if (argc >= 7) {
+        // Grab the path offset
+        strcpy(path, args[6]);
+    } else {
+        path[0] = '\0';
+    }
+
+    if (path[0] == '\0') {
         // get default from /root/config/output_path
         if (cfileexists(PATH_CONFIG)) {
             FL=fopen(PATH_CONFIG, "r");
@@ -2363,7 +2388,7 @@ main_loop_for_printing:
                     outline_printing       =   0;
                     shadow_printing        =   0;
                     print_controlcodes     =   0;
-                    print_uppercontrolcodes =  0;
+                    print_uppercontrolcodes =  1;
                     graphics_mode          =   0;
                     microweave_printing    =   0;
                     vTabulatorsSet         =   0;
@@ -2970,7 +2995,7 @@ main_loop_for_printing:
                     outline_printing       =   0;
                     shadow_printing        =   0;
                     print_controlcodes     =   0;
-                    print_uppercontrolcodes =  0;
+                    print_uppercontrolcodes =  1;
                     vTabulatorsSet         =   0;
                     vTabulatorsCancelled   =   0;
                     defaultUnit            =   0;
@@ -4077,7 +4102,7 @@ main_loop_for_printing:
     }
 
     if (sdlon) SDL_UpdateRect(display, 0, 0, 0, 0);
-    if (i == 0) goto main_loop_for_printing;
+    if (state && i == 0) goto main_loop_for_printing;
 
     printf("\n\nI am at page %d\n", page);
 
@@ -4086,11 +4111,11 @@ main_loop_for_printing:
 
     if (outputFormatText == 0) {
         // No end of line conversion required
-        sprintf(filenameX, "cp  %s  %s ", INPUT_FILENAME,patheps);
+        sprintf(filenameX, "cp  %s  %s ", input_filename,patheps);
         printf("command = %s \n", filenameX);
         system(filenameX);
     } else {
-        sprintf(filenameX, "%s", INPUT_FILENAME);
+        sprintf(filenameX, "%s", input_filename);
         sprintf(filenameY, "%s%d.eps", patheps,page);
         convertUnixWinMac(filenameX,filenameY);
     }
