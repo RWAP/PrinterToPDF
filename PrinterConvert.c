@@ -24,7 +24,8 @@
  * v1.6.2 Minor bug fix to the use of letter quality
  * v1.6.3 Improve read_byte_from_file() as fseek and ftell not required (were needed for Retro-Printer Module implementation)
  *        Improve comments on MSB Setting to clarify usage
- * v1.6.4 - 8 bit characters are enabled by default. You can change this back to italics by commenting out the #define ITALIC_CHARS_PRINTABLE
+ * v1.6.4 - 8 bit characters are enabled by default (for international character sets for example) - you can change this by setting use8bitchars = 0
+ *        - If you want to use the top range of characters as italics, set useItalicsCharSet to 1
  *        - Default margins for A4 paper sizes are now 10 mm each side and 20 mm on the left (portrait) or the top (landscape)
  *        - The name of the file to be converted can be passed on the command line as last argument
  *        - read_byte_from_file() didn't manipulate the data but the address of the data
@@ -45,9 +46,8 @@
 #define PATH_CONFIG         "/root/config/output_path"              // default path for output files
 #define INPUT_FILENAME      "./Test1.prn"                           // Name of file to be converted
 
-// Define to treat ASCII 160-255 as normal characters instead of italic
-#define ITALIC_CHARS_PRINTABLE
-
+int use8bitchars = 1;                       // Use 8 bit character sets - for example for umlaut characters ASCII 160-255 are treated as normal characters (see Italics too)
+int useItalicsCharSet = 0;                  // Whether characters with codes ASCII 160-255 are to be treated as italics (do not use with use8bitchars)
 int pageSize;                               // Sets up page size - see initialize() for details
 int cpi = 10;                               // PICA is standard
 int pitch = 10;                             //Same as cpi but will retain its value when condensed printing is switched on
@@ -117,7 +117,6 @@ double absVerticalUnit     = 0;         //Default Absolute Vertical Management U
 int useExtendedSettings    = 0;         //Do we use normal settings for default unit or extended set?
 
 int bold                   = 0;         //Currently bold and double-strike are the same
-int italic                 = 0;
 int underlined             = 0;
 int superscript            = 0;
 int subscript              = 0;
@@ -131,7 +130,7 @@ int outline_printing       = 0;         //Outline printing not yet implemeneted
 int shadow_printing        = 0;         //Shadow printing not yet implemented
 
 int print_controlcodes     = 0;
-int print_uppercontrolcodes= 1;
+int print_uppercontrolcodes= 0;
 
 int graphics_mode          = 0;
 int microweave_printing    = 0;
@@ -455,22 +454,22 @@ int initialize()
 
     switch (pageSize) {
     case 0:
-        // A4 Portrait
+        // A4 Portrait - standard Epson Margins
         pageSetWidth = 5954; // 720 * 8.27"
         pageSetHeight = 8417; // 720 * 11.69"
-        defaultMarginLeftp = 567; // 720 x 20mm
-        defaultMarginRightp = pageSetWidth - 284; // 720 x 10mm
-        defaultMarginTopp = 284; // 720 x 10mm
-        defaultMarginBottomp = pageSetHeight - 284; // 720 x 10mm
+        defaultMarginLeftp = 85; // 720 x 3mm
+        defaultMarginRightp = pageSetWidth - 85; // 720 x 3mm
+        defaultMarginTopp = 241; // 720 x 8.5mm
+        defaultMarginBottomp = pageSetHeight - 382; // 720 x 13.5mm
         break;
     case 1:
-        // A4 Landscape
+        // A4 Landscape - standard Epson Margins
         pageSetWidth = 8417; // 720 * 11.69"
         pageSetHeight = 5954; // 720 * 8.27"
-        defaultMarginLeftp = 284; // 720 x 10mm
-        defaultMarginRightp = pageSetWidth - 284; // 720 x 10mm
-        defaultMarginTopp = 567; // 720 x 20mm
-        defaultMarginBottomp = pageSetHeight - 284; // 720 x 10mm
+        defaultMarginLeftp = 85; // 720 x 3mm
+        defaultMarginRightp = pageSetWidth - 85; // 720 x 3mm
+        defaultMarginTopp = 241; // 720 x 8.5mm
+        defaultMarginBottomp = pageSetHeight - 382; // 720 x 13.5mm
         break;
     case 2:
         pageSetWidth = 5811; // 720 * 205mm
@@ -480,6 +479,25 @@ int initialize()
         defaultMarginTopp = 71; // 720 x 10mm
         defaultMarginBottomp = pageSetHeight - 71; // 720 x 10mm
         break;
+    case 3:
+        // A4 Portrait - 20mm margins
+        pageSetWidth = 5954; // 720 * 8.27"
+        pageSetHeight = 8417; // 720 * 11.69"
+        defaultMarginLeftp = 567; // 720 x 20mm
+        defaultMarginRightp = pageSetWidth - 284; // 720 x 10mm
+        defaultMarginTopp = 284; // 720 x 10mm
+        defaultMarginBottomp = pageSetHeight - 284; // 720 x 10mm
+        break;
+    case 4:
+        // A4 Landscape - 20mm margins
+        pageSetWidth = 8417; // 720 * 11.69"
+        pageSetHeight = 5954; // 720 * 8.27"
+        defaultMarginLeftp = 284; // 720 x 10mm
+        defaultMarginRightp = pageSetWidth - 284; // 720 x 10mm
+        defaultMarginTopp = 567; // 720 x 20mm
+        defaultMarginBottomp = pageSetHeight - 284; // 720 x 10mm
+        break;
+        
     }
 
     marginleftp = defaultMarginLeftp;
@@ -1742,14 +1760,13 @@ int printcharx(unsigned char chr)
     int charHeight = 24; // 24 pin printer - characters 24 pixels high
     int fontDotWidth, fontDotHeight, character_spacing;
 
-    chr2 = (unsigned int) chr;
-#ifndef ITALIC_CHARS_PRINTABLE
-    if (chr2 >= 160) {
+    chr2 = (unsigned int) chr;    
+    if (!use8bitchars && useItalicsCharSet && chr2 >= 160) {
+        // In this case characters with ASCII 160-255 are treated as italic versions of the original
         extendedChar = 1;
         chr2 = chr2 - 128; // Normally upper character set - italic version of the lower character set
         chr = (unsigned char) chr2;
     }
-#endif /* defined ITALIC_CHARS_PRINTABLE */
     adressOfChar = chr2 << 4;  // Multiply with 16 to Get Adress
     hPixelWidth = printerdpih / (float) cdpih;
     vPixelWidth = printerdpiv / (float) cdpiv;
@@ -1803,7 +1820,6 @@ int printcharx(unsigned char chr)
             vPixelWidth=vPixelWidth*divisor;
             yposoffset=2;
         } else {
-            //fontDotWidth = (float) hPixelWidth * (((float) 360 / (float) cpi) / (float) 8);
             fontDotHeight = vPixelWidth;
             yposoffset=2;
         }
@@ -1812,10 +1828,10 @@ int printcharx(unsigned char chr)
             // Use nearest to 2/3
             divisor=2.0/3.0;
             vPixelWidth=vPixelWidth*divisor;
-            yposoffset=24;
+            yposoffset=26;
         } else {
             fontDotHeight = vPixelWidth;
-            yposoffset=24;
+            yposoffset=26;
         }
     }
 
@@ -2309,6 +2325,9 @@ int main(int argc, char *args[])
         erasesdl();
         SDL_UpdateRect(display, 0, 0, 0, 0);
     }
+    
+    // Do we support 8 Bit printing - in which case, upper control codes are ignored!
+    if (use8bitchars) print_uppercontrolcodes = 1;
 
 main_loop_for_printing:    
     xpos = marginleftp;
@@ -2388,7 +2407,8 @@ main_loop_for_printing:
                     outline_printing       =   0;
                     shadow_printing        =   0;
                     print_controlcodes     =   0;
-                    print_uppercontrolcodes =  1;
+                    print_uppercontrolcodes =  0;
+                    if (use8bitchars) print_uppercontrolcodes = 1;
                     graphics_mode          =   0;
                     microweave_printing    =   0;
                     vTabulatorsSet         =   0;
@@ -2732,9 +2752,9 @@ main_loop_for_printing:
                 }
             }
 
-        } else if ((print_uppercontrolcodes==1) && (xd >= (int) 128) && (xd <= (int) 159)) {
-            print_character(xd);
-        } else if ((print_controlcodes==1) && (xd <= (int) 127)) {
+        } else if ((print_uppercontrolcodes == 1 && (useItalicsCharSet || use8bitchars) && (xd >= (int) 128) && (xd <= (int) 159)) {
+            print_character(xd);            
+        } else if (print_controlcodes == 1 && (xd <= (int) 127)) {
             print_character(xd);
         } else {
             // Epson ESC/P2 printer code handling
@@ -2995,7 +3015,8 @@ main_loop_for_printing:
                     outline_printing       =   0;
                     shadow_printing        =   0;
                     print_controlcodes     =   0;
-                    print_uppercontrolcodes =  1;
+                    print_uppercontrolcodes =  0;
+                    if (use8bitchars) print_uppercontrolcodes = 1;
                     vTabulatorsSet         =   0;
                     vTabulatorsCancelled   =   0;
                     defaultUnit            =   0;
@@ -4040,7 +4061,7 @@ main_loop_for_printing:
                     state = read_byte_from_file((char *) &nL);
                     if (italic == 0 ) {
                         if (nL==0) print_uppercontrolcodes=1;
-                        if (nL==4) print_uppercontrolcodes=0;
+                        if (nL==4 && !use8bitchars) print_uppercontrolcodes=0;
                     }
                     break;
                 case 'r':
