@@ -47,10 +47,10 @@ To compile the program use the following command:
 For testing, store the file (called test1.prn) to be converted in the same directory as printerToPDF (eg /home/printerToPDF)
 
 You can then convert it with:
-./printerToPDF 3 0 font2/SIEMENS.C16 1 sdloff /home/printerToPDF/output
+``./printerToPDF 3 0 font2/SIEMENS.C16 1 sdloff /home/printerToPDF/output``
 
-You could easily change the code to pass the input filename as a parameter.
-
+You can also pass the input filename as a further parameter
+``./printerToPDF 3 0 font2/SIEMENS.C16 1 sdloff /home/printerToPDF/output /home/pi/epson_data.raw``
 
 IMPORTANT NOTE
 The ESC/P standard and ESC/P2 standard are different in how they handle line spacing.  The ESC/P standard uses 1/72" units, whereas the later ESC/P2 standard uses 1/60" units.
