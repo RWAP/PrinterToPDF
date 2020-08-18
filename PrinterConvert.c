@@ -14,7 +14,7 @@
  *
  * v1.0 First Release - taken from the conversion software currently in development for the Retro-Printer module.
  * v1.1 Swithced to using libHaru library to create the PDF file for speed and potential future enhancements - see http://libharu.org/
- *      Tidied up handling of the default configuration files  
+ *      Tidied up handling of the default configuration files
  * v1.2 Removed possibility of a stack dump where tries to unlink both imagememory and seedrow
  * v1.3 General code tidy and improve handling of 9 pin printers
  * v1.4 Added Auto-Linefeed configuration, handle extended control codes and bring up to the same standard as v3.2 Retro-Printer Software
@@ -36,7 +36,7 @@
  * Relies on libpng and ImageMagick libraries
  *
  * Incoming data (if Epson ESC/P or ESC/P2) is used to generate a bitmap.
- * Without any library to convert the bitmap directly to PDF, we have to convert the bitmap to PNG initially and then 
+ * Without any library to convert the bitmap directly to PDF, we have to convert the bitmap to PNG initially and then
  * convert the PNG to a PDF file using the libHaru library
  */
 
@@ -118,6 +118,7 @@ int useExtendedSettings    = 0;         //Do we use normal settings for default 
 
 int bold                   = 0;         //Currently bold and double-strike are the same
 int underlined             = 0;
+int italic                 = 0;
 int superscript            = 0;
 int subscript              = 0;
 int strikethrough          = 0;
@@ -417,7 +418,7 @@ int * lookupColour(unsigned char colourValue)
             mixedColour_blue = 255;
         }
     }
-    */    
+    */
     rgb1[0] = mixedColour_red;
     rgb1[1] = mixedColour_green;
     rgb1[2] = mixedColour_blue;
@@ -448,7 +449,7 @@ int initialize()
     // Based it on support for 720dpi (24 pin printers)
     // All settings have to be in inches - 1 mm = (1/25.4)"
     pageSize = 0;
-    
+
     // Choose PNG Generation mode - 1 = in memory (fast but uses a lot more memory), 2 = use external file (slower, but less memory)
     imageMode = 1;
 
@@ -497,7 +498,7 @@ int initialize()
         defaultMarginTopp = 567; // 720 x 20mm
         defaultMarginBottomp = pageSetHeight - 284; // 720 x 10mm
         break;
-        
+
     }
 
     marginleftp = defaultMarginLeftp;
@@ -523,7 +524,7 @@ int initialize()
         }
         // For Delta Row compression - set aside room to store colourSupport (4 or 6) seed rows (1 per supported colour)
         // May as well use the imagememory temporarily for the seedrows
-        seedrow = imagememory;    
+        seedrow = imagememory;
     } else {
         // Slower method - PNG image is saved to disk first and then converted from there
         seedrow = calloc ((pageSetWidth+1) * colourSupport, 1);
@@ -617,7 +618,7 @@ int write_png(const char *filename, int width, int height, char *rgb)
                 imagememory[ppos++] = green[pixelColour];
                 imagememory[ppos++] = blue[pixelColour];
             }
-        }  
+        }
     } else {
         // Use LibPNG to create a PNG image on disk for conversion
         printf("write   = %s \n", filenameX);
@@ -682,7 +683,7 @@ int write_png(const char *filename, int width, int height, char *rgb)
             }
             png_write_row(png_ptr, row);
         }
-  
+
         // End write
         png_write_end(png_ptr, NULL);
     }
@@ -713,19 +714,19 @@ int write_pdf (const char *filename, const char *pdfname, int width, int height)
     HPDF_Font font;
     HPDF_Page page;
     HPDF_Destination dst;
-    
+
     pdf = HPDF_New (pdf_error_handler, NULL);
     if (!pdf) {
         printf ("error: cannot create PdfDoc object\n");
         return 1;
     }
-    
+
     /* error-handler */
     if (setjmp(env)) {
         HPDF_Free (pdf);
         return 1;
     }
-    
+
     HPDF_SetCompressionMode (pdf, HPDF_COMP_ALL);
 
     /* create default-font */
@@ -735,7 +736,7 @@ int write_pdf (const char *filename, const char *pdfname, int width, int height)
     page = HPDF_AddPage (pdf);
 
     HPDF_REAL ScaleDPI(HPDF_REAL size) { return (float) size * (72.0F / (float) printerdpih); }
-    
+
     switch (pageSize) {
     case 0:
     case 3:
@@ -750,10 +751,10 @@ int write_pdf (const char *filename, const char *pdfname, int width, int height)
     case 2:
         // 12" Paper - US Single Sheet
         HPDF_Page_SetWidth (page, ScaleDPI(width));
-        HPDF_Page_SetHeight (page, ScaleDPI(height));         
-        break;            
-    }     
-        
+        HPDF_Page_SetHeight (page, ScaleDPI(height));
+        break;
+    }
+
 
     dst = HPDF_Page_CreateDestination (page);
     HPDF_Destination_SetXYZ (dst, 0, HPDF_Page_GetHeight (page), 1);
@@ -765,9 +766,9 @@ int write_pdf (const char *filename, const char *pdfname, int width, int height)
     HPDF_Page_MoveTextPos (page, 220, HPDF_Page_GetHeight (page) - 70);
     HPDF_Page_ShowText (page, "PngDemo");
     HPDF_Page_EndText (page);
-    HPDF_Page_SetFontAndSize (page, font, 12);    
-    */    
-    
+    HPDF_Page_SetFontAndSize (page, font, 12);
+    */
+
     HPDF_Image image;
 
     if (imageMode == 1 ) {
@@ -1078,7 +1079,7 @@ void _print_incomingDataByte(int compressMode, unsigned char xd, int seedrowStar
                 putpixelbig(xpos, ypos, hPixelWidth, vPixelWidth);
             }
             xd = xd << 1;
-            xpos = xpos + hPixelWidth;            
+            xpos = xpos + hPixelWidth;
         }
     }
 }
@@ -1099,14 +1100,14 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
     existingColour = printColour;
     // Original ESC/P2 supports 4 colours, but later printers support 6 or even 8 !
     // Supported Colours are 0 = BLACK, 1 = MAGENTA, 2 = CYAN, 4 = YELLOW, 9 = LIGHT MAGENTA, 10 = LIGHT CYAN
-    if (printColour > 4 && printColour <9) printColour = 4; 
-    if (printColour > 10) printColour = 10; 
+    if (printColour > 4 && printColour <9) printColour = 4;
+    if (printColour > 10) printColour = 10;
 
   tiff_delta_loop:
     seedrowColour = printColour;
     if (seedrowColour == 4) seedrowColour = 3; // Colours are 0,1,2,4,9 & 10
     if (seedrowColour == 9) seedrowColour = 4; // Colours are 0,1,2,4,9 & 10
-    if (seedrowColour == 10) seedrowColour = 5; // Colours are 0,1,2,4,9 & 10  
+    if (seedrowColour == 10) seedrowColour = 5; // Colours are 0,1,2,4,9 & 10
     seedrowStart = (seedrowColour * pageSetWidth) / 8;
     seedrowEnd = seedrowStart + (pageSetWidth / 8);
 
@@ -1775,7 +1776,7 @@ int printcharx(unsigned char chr)
     int charHeight = 24; // 24 pin printer - characters 24 pixels high
     int fontDotWidth, fontDotHeight, character_spacing;
 
-    chr2 = (unsigned int) chr;    
+    chr2 = (unsigned int) chr;
     if (!use8bitchars && useItalicsCharSet && chr2 >= 160) {
         // In this case characters with ASCII 160-255 are treated as italic versions of the original
         extendedChar = 1;
@@ -2110,7 +2111,7 @@ char* readFileParameter(char filename[100])
     char ch;
     int i;
     char *parameter=malloc(sizeof(char) * 200);
-    
+
     FL = fopen(filename, "r");
     i=0;
     if (FL != NULL) {
@@ -2228,7 +2229,7 @@ int main(int argc, char *args[])
     printf("\n");
 
     outputFormatText=2;
-    
+
     // get default from /root/config/linefeed_ending
     if (cfileexists(LINEFEED_CONFIG)) {
         config = readFileParameter(LINEFEED_CONFIG);
@@ -2239,7 +2240,7 @@ int main(int argc, char *args[])
         } else if (strncmp(config,"mac", 3) == 0) {
             outputFormatText=3;
         }
-    }    
+    }
 
     // Parse the parameters in case they override the defaults
 
@@ -2287,7 +2288,7 @@ int main(int argc, char *args[])
     strcpy(pathpng, path);
     strcpy(patheps, path);
     strcpy(pathpdf, path);
-    
+
     strcat(pathraw,   "");
     strcat(pathpng,   "png/");
     strcat(pathpdf,   "pdf/");
@@ -2340,11 +2341,11 @@ int main(int argc, char *args[])
         erasesdl();
         SDL_UpdateRect(display, 0, 0, 0, 0);
     }
-    
+
     // Do we support 8 Bit printing - in which case, upper control codes are ignored!
     if (use8bitchars) print_uppercontrolcodes = 1;
 
-main_loop_for_printing:    
+main_loop_for_printing:
     xpos = marginleftp;
     ypos = margintopp;
     if (sdlon) erasesdl();
@@ -2385,7 +2386,7 @@ main_loop_for_printing:
                 if (auto_LF) {
                     ypos = ypos + line_spacing;
                     double_width_single_line = 0;
-                    test_for_new_paper();                    
+                    test_for_new_paper();
                 }
                 break;
             case 27:    // ESC Escape (do nothing, will be processed later in this code)
@@ -2433,7 +2434,7 @@ main_loop_for_printing:
                     relHorizontalUnit      =   0;
                     absHorizontalUnit      =   0;
                     relVerticalUnit        =   0;
-                    absVerticalUnit        =   0;                    
+                    absVerticalUnit        =   0;
                     break;
                 case '.':
                     // Raster printing ESC . c v h m nL nH d1 d2 . . . dk print bit-image graphics.
@@ -2541,7 +2542,7 @@ main_loop_for_printing:
                             if (pageLength > pageSetHeight) {
                                 // Free more memory and reset the pagesetheight and default margins
                             }
-                            */                          
+                            */
                         }
                         margintopp = defaultMarginTopp;
                         marginbottomp = defaultMarginBottomp;
@@ -2575,7 +2576,7 @@ main_loop_for_printing:
                         state = read_byte_from_file((char *) &nH); // Always 0
                         if (state == 0) break;
                         if (nL != 4) {
-                            // Original ESC/P2 standard                        
+                            // Original ESC/P2 standard
                             state = read_byte_from_file((char *) &mL);
                             if (state == 0) break;
                             state = read_byte_from_file((char *) &mH);
@@ -2645,7 +2646,7 @@ main_loop_for_printing:
                         state = read_byte_from_file((char *) &nH); // Always 0
                         if (state == 0) break;
                         if (nL != 5) {
-                            // Original ESC/P2 standard                        
+                            // Original ESC/P2 standard
                             int useExtendedSettings = 0;
                             state = read_byte_from_file((char *) &m);
                             defaultUnit = ((float) m / (float) 3600) * printerdpiv; // set default unit to m/3600 inches
@@ -2659,7 +2660,7 @@ main_loop_for_printing:
                             // Extended standard
                             int useExtendedSettings = 1;
                             state = read_byte_from_file((char *) &m1); // P
-                            if (state == 0) break;                            
+                            if (state == 0) break;
                             state = read_byte_from_file((char *) &m2); //  V
                             if (state == 0) break;
                             state = read_byte_from_file((char *) &m3); // H
@@ -2687,7 +2688,7 @@ main_loop_for_printing:
                             if ((m == 1) || (m == 49)) microweave_printing = 1;
                         }
                         break;
-                    case '$':    
+                    case '$':
                         // ESC ( $ 04 00 m1 m2 m3 m4 Set absolute horizontal print position
                         // Only effective in graphics mode
                         state = read_byte_from_file((char *) &nL); // Should be 04
@@ -2724,7 +2725,7 @@ main_loop_for_printing:
                     } else {
                         thisDefaultUnit = defaultUnit;
                         if (defaultUnit == 0) thisDefaultUnit = printerdpih / (float) 60; // Default for command is 1/180 inch units in LQ mode
-                    }                    
+                    }
                     xpos2 = ((nH * 256) + nL) * (int) thisDefaultUnit + marginleftp;
                     if (xpos2 > marginrightp) {
                         // No action
@@ -2767,8 +2768,8 @@ main_loop_for_printing:
                 }
             }
 
-        } else if ((print_uppercontrolcodes == 1 && (useItalicsCharSet || use8bitchars) && (xd >= (int) 128) && (xd <= (int) 159)) {
-            print_character(xd);            
+        } else if (print_uppercontrolcodes == 1 && (useItalicsCharSet || use8bitchars) && (xd >= (int) 128) && (xd <= (int) 159)) {
+            print_character(xd);
         } else if (print_controlcodes == 1 && (xd <= (int) 127)) {
             print_character(xd);
         } else {
@@ -2776,7 +2777,7 @@ main_loop_for_printing:
             switch (xd) {
             case 0:    // NULL do nothing
             case 128:
-                break;             
+                break;
             case 1:    // SOH do nothing
             case 129:
                 break;
@@ -2892,7 +2893,7 @@ main_loop_for_printing:
                 if (auto_LF) {
                     ypos = ypos + line_spacing;
                     double_width_single_line = 0;
-                    test_for_new_paper();                        
+                    test_for_new_paper();
                 }
                 break;
             case 14:    // SO Shift Out (do nothing) Select double Width printing (for one line)
@@ -2916,7 +2917,7 @@ main_loop_for_printing:
             case 145:
                 // Intended to turn on or start an ancillary device, to restore it to
                 // the basic operation mode (see DC2 and DC3), or for any
-                // other device control function.            
+                // other device control function.
                 break;
             case 18:    // DC2 (Device Control 2) Condensed printing off, see 15
             case 146:
@@ -3599,7 +3600,7 @@ main_loop_for_printing:
                             if (pageLength > pageSetHeight) {
                                 // Free more memory and reset the pagesetheight and default margins
                             }
-                            */                          
+                            */
                         }
                         margintopp = defaultMarginTopp;
                         marginbottomp = defaultMarginBottomp;
@@ -3634,7 +3635,7 @@ main_loop_for_printing:
                         state = read_byte_from_file((char *) &nH); // Always 0
                         if (state == 0) break;
                         if (nL != 4) {
-                            // Original ESC/P2 standard                        
+                            // Original ESC/P2 standard
                             state = read_byte_from_file((char *) &mL);
                             if (state == 0) break;
                             state = read_byte_from_file((char *) &mH);
@@ -3704,7 +3705,7 @@ main_loop_for_printing:
                         state = read_byte_from_file((char *) &nH); // Always 0
                         if (state == 0) break;
                         if (nL != 5) {
-                            // Original ESC/P2 standard                        
+                            // Original ESC/P2 standard
                             int useExtendedSettings = 0;
                             state = read_byte_from_file((char *) &m);
                             defaultUnit = ((float) m / (float) 3600) * printerdpiv; // set default unit to m/3600 inches
@@ -3713,12 +3714,12 @@ main_loop_for_printing:
                             relHorizontalUnit = defaultUnit;
                             absHorizontalUnit = defaultUnit;
                             relVerticalUnit = defaultUnit;
-                            absVerticalUnit = defaultUnit;                            
+                            absVerticalUnit = defaultUnit;
                         } else if (nL == 5) {
                             // Extended standard
                             int useExtendedSettings = 1;
                             state = read_byte_from_file((char *) &m1); // P
-                            if (state == 0) break;                            
+                            if (state == 0) break;
                             state = read_byte_from_file((char *) &m2); //  V
                             if (state == 0) break;
                             state = read_byte_from_file((char *) &m3); // H
@@ -3746,7 +3747,7 @@ main_loop_for_printing:
                             if ((m == 1) || (m == 49)) microweave_printing = 1;
                         }
                         break;
-                    case '$':    
+                    case '$':
                         // ESC ( $ 04 00 m1 m2 m3 m4 Set absolute horizontal print position
                         // Only effective in graphics mode
                         state = read_byte_from_file((char *) &nL); // Should be 04
@@ -3760,9 +3761,9 @@ main_loop_for_printing:
                         state = read_byte_from_file((char *) &m3);
                         if (state == 0) break;
                         state = read_byte_from_file((char *) &m4);
-                        if (state == 0) break;                            
+                        if (state == 0) break;
                         // DO NOTHING - not in graphics mode
-                        break;                         
+                        break;
                     case 't':
                         // 27 40 116 nL nH d1 d2 d3 Assign character table
                         // not implemented yet
@@ -4013,7 +4014,7 @@ main_loop_for_printing:
                     // margin settings
                     margintopp = defaultMarginTopp;
                     marginbottomp = defaultMarginBottomp;
-                    break;                   
+                    break;
                 case '$':    // Set absolute horizontal print position ESC $ nL nH
                     state = read_byte_from_file((char *) &nL);
                     if (state == 0) break;
@@ -4025,7 +4026,7 @@ main_loop_for_printing:
                     } else {
                         thisDefaultUnit = defaultUnit;
                         if (defaultUnit == 0) thisDefaultUnit = printerdpih / (float) 60; // Default for command is 1/180 inch units in LQ mode
-                    }                    
+                    }
                     xpos2 = ((nH * 256) + nL) * (int) thisDefaultUnit + marginleftp;
                     if (xpos2 > marginrightp) {
                         // No action
@@ -4155,7 +4156,7 @@ main_loop_for_printing:
         sprintf(filenameY, "%s%d.eps", patheps,page);
         convertUnixWinMac(filenameX,filenameY);
     }
-    
+
     if (dataToConvert > 0) {
         sprintf(filenameX, "%spage%d.png", pathpng, page);
         sprintf(filenameY, "%spage%d.pdf", pathpdf, page);
