@@ -463,7 +463,7 @@ int initialize()
         defaultMarginBottomp = pageSetHeight - 382; // 720 x 13.5mm
         break;
     case 1:
-        // A4 Landscape - standard Epson Margins
+        // A4 Landscape - standard Epson Margins - page orientation of margins etc carried out when creating pdf
         pageSetWidth = 8417; // 720 * 11.69"
         pageSetHeight = 5954; // 720 * 8.27"
         defaultMarginLeftp = 85; // 720 x 3mm
@@ -489,7 +489,7 @@ int initialize()
         defaultMarginBottomp = pageSetHeight - 284; // 720 x 10mm
         break;
     case 4:
-        // A4 Landscape - 20mm margins
+        // A4 Landscape - 20mm margins - page orientation of margins etc carried out when creating pdf
         pageSetWidth = 8417; // 720 * 11.69"
         pageSetHeight = 5954; // 720 * 8.27"
         defaultMarginLeftp = 284; // 720 x 10mm
@@ -736,9 +736,24 @@ int write_pdf (const char *filename, const char *pdfname, int width, int height)
 
     HPDF_REAL ScaleDPI(HPDF_REAL size) { return (float) size * (72.0F / (float) printerdpih); }
     
-    HPDF_Page_SetWidth (page, ScaleDPI(width));
-    HPDF_Page_SetHeight (page, ScaleDPI(height));    
-    
+    switch (pageSize) {
+    case 0:
+    case 3:
+        // A4
+        HPDF_Page_SetSize(page, HPDF_PAGE_SIZE_A4, HPDF_PAGE_PORTRAIT);
+        break;
+    case 1:
+    case 4:
+        // A4 Landscape
+        HPDF_Page_SetSize(page, HPDF_PAGE_SIZE_A4, HPDF_PAGE_LANDSCAPE);
+        break;
+    case 2:
+        // 12" Paper - US Single Sheet
+        HPDF_Page_SetWidth (page, ScaleDPI(width));
+        HPDF_Page_SetHeight (page, ScaleDPI(height));         
+        break;            
+    }     
+        
 
     dst = HPDF_Page_CreateDestination (page);
     HPDF_Destination_SetXYZ (dst, 0, HPDF_Page_GetHeight (page), 1);
