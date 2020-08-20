@@ -14,7 +14,8 @@ The PrinterConvert code works by creating a bitmap image in memory which is then
 RWAP Software
 January 2019
 
-PRE-REQUISITES
+
+<b>PRE-REQUISITES</b>
 You will need libpng, ImageMagick, SDL libHARU installed on Linux. 
 
 For Debian (on the Raspberry Pi), this means running;
@@ -31,7 +32,7 @@ You may also be able to use : <code>sudo apt install libhpdf-2.2.1 libhpdf-dev</
 
 Ensure you copy BOTH dir.c and PrinterConvert.c to your working directory
 
-COMPILING
+<b>COMPILING</b>
 On some versions of Linux, you will need to change the reference in line 8 to read:
 <code>#include "/usr/local/include/hpdf.h"</code>
 
@@ -44,15 +45,62 @@ To compile the program use the following command:
 ```gcc PrinterConvert.c `sdl-config --cflags --libs` -o printerToPDF -lrt -lhpdf -lpng```
 
 
-For testing, store the file (called test1.prn) to be converted in the same directory as printerToPDF (eg /home/printerToPDF)
+<b>Usage</b>
+PrinterToPDF allows various parameters to be passed as part of the command line.  These can be passed in any order.
 
-You can then convert it with:
-``./printerToPDF 3 0 font2/SIEMENS.C16 1 sdloff /home/printerToPDF/output``
+Call it with 
+``./PrinterToPDF -o PATH -f FONT [OPTIONS] [FILE]``
 
-You can also pass the input filename as a further parameter
-``./printerToPDF 3 0 font2/SIEMENS.C16 1 sdloff /home/printerToPDF/output /home/pi/epson_data.raw``
+Mandatory Options are:
+    -o PATH                 A directory to store the output files (eg. /home/pi/data/) 
+    -f FONT                 Name of font file to use (eg font2/Epson-Standard.C16)
+    
+Options:    
+    -d                      Set font direction right or left.  Default is -d right
+    -s [NUM]                Display printout in sdl window.  The optional numeric argument reduces sdl display to that percentage of original size
+    -p NUM                  Select predefined page size:
+                            0: A4 portrait (210 x 297 mm) (default)
+                            1: A4 landscape (297 x 210 mm)
+                            2: 12" paper - US Single Sheet (8 x 12")
 
-IMPORTANT NOTE
+                            <b>OR</b>
+
+    -p W,H                  Select custom page size in millimeters (W: width, H: height) - for example, -p 210,297
+    -m [L],[R],[T],[B]      Set page margins in millimeters
+                            You can leave fields blank to keep the default values:
+                            L (left):    3.0 mm (paper size 2:  2.5 mm)
+                            R (right):   3.0 mm (paper size 2:  2.5 mm)
+                            T (top):     8.5 mm (paper size 2: 10.0 mm)
+                            B (bottom): 13.5 mm (paper size 2: 10.0 mm)
+
+                            <b>OR</b>
+
+    -m V,H                  Set page margins in millimeters - V is vertical sides (left and right), H is horizontal sides (top and bottom)
+
+                            <b>OR</b>
+                            
+    -m A                    Set same margis in millimeters for all sides
+    -l STR                  Set linefeed ending:
+                            none: No conversion (default)
+                            unix:    Unix (LF)
+                            windows: Windows (CR+LF)
+                            mac:     MAC (CR)
+    -8                      Use 8 Bit characters (CANNOT be used with -i)
+    -i                      Use character codes 160-255 as italics (CANNOT be used with -8)
+    -q                      Quiet mode - do not output any messages
+    
+    -h                      Display this help and exit
+    -v                      Display version information and exit
+    
+    [FILE]                  This is the raw data file to be converted.  If not specified, input is read from stdin
+                            
+The default would be:
+
+``./PrinterToPDF -o PATH -f FONT -d right -p 0 -m 3,3,8.5,13.5 -l none``
+
+
+
+<b>IMPORTANT NOTE</b>
 The ESC/P standard and ESC/P2 standard are different in how they handle line spacing.  The ESC/P standard uses 1/72" units, whereas the later ESC/P2 standard uses 1/60" units.
 
 As a result the line spacing may be incorrect if used with programs which expect a 9 pin (ESC/P) printer.
@@ -61,5 +109,5 @@ If the produced output appears elongated (or has apparent extra line feeds), try
 <code>int needles = 9;</code>
 
 
-DISCUSSION
+<b>DISCUSSION</b>
 For general discussion about the PrinterToPDF software and the Retro-Printer project which forms the basis for this conversion software, please visit the forums - https://www.retroprinter-support.com/viewforum.php?f=10

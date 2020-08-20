@@ -1,16 +1,20 @@
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <time.h>
+#include <unistd.h>
 #include <png.h>
 #include <setjmp.h>
 #include "/usr/include/hpdf.h"
 #include "/usr/include/SDL/SDL.h"
 #include "dir.c"
 
+const char* version = "v1.7";
+
 /* Conversion program to convert Epson ESC/P printer data to an Adobe PDF file on Linux.
- * v1.6.4
+ * v1.7
  *
  * v1.0 First Release - taken from the conversion software currently in development for the Retro-Printer module.
  * v1.1 Swithced to using libHaru library to create the PDF file for speed and potential future enhancements - see http://libharu.org/
@@ -31,6 +35,12 @@
  *        - read_byte_from_file() didn't manipulate the data but the address of the data
  *        - Superscript and subscript should look better now
  *        - Bug with unexpected infinite loop fixed
+ *
+ * v1.7 - Flexible command line control (see function usage() for more information)
+ *      - Fix right margin issue (margin was ignored)
+ *      - Load font data in one task calling fread()
+ *      - Introduce quiet mode
+ *
  * www.retroprinter.com
  *
  * Relies on libpng and ImageMagick libraries
@@ -44,11 +54,7 @@
 // Configuration files - these are simple files with flags
 #define LINEFEED_CONFIG     "/root/config/linefeed_ending"          // Unix, Windows or Mac line feeds in conversion
 #define PATH_CONFIG         "/root/config/output_path"              // default path for output files
-#define INPUT_FILENAME      "./Test1.prn"                           // Name of file to be converted
 
-int use8bitchars = 1;                       // Use 8 bit character sets - for example for umlaut characters ASCII 160-255 are treated as normal characters (see Italics too)
-int useItalicsCharSet = 0;                  // Whether characters with codes ASCII 160-255 are to be treated as italics (do not use with use8bitchars)
-int pageSize;                               // Sets up page size - see initialize() for details
 int cpi = 10;                               // PICA is standard
 int pitch = 10;                             //Same as cpi but will retain its value when condensed printing is switched on
 int needles = 24;                           // number of needles - 9 pin can be important for line spacing
@@ -60,12 +66,14 @@ int auto_LF = 0;                            // Whether we should process a CR on
 int step = 0;
 // END OF CONFIGURATION OPTIONS
 
-const char* input_filename = INPUT_FILENAME;
+int use8bitchars = 0;                       // Use 8 bit character sets - for example for umlaut characters ASCII 160-255 are treated as normal characters (see Italics too)
+int useItalicsCharSet = 0;                  // Whether characters with codes ASCII 160-255 are to be treated as italics (do not use with use8bitchars)
+int quiet_mode = 0;
 
 int pageSetWidth;
 int pageSetHeight;
-float printerdpih = 720;
-float printerdpiv = 720;
+const float printerdpih = 720.0;
+const float printerdpiv = 720.0;
 float hmi = (float) 720 * ((float) 36 / (float) 360);              // pitch in inches per character.  Default is 36/360 * 720 = 10 cpi
 int line_spacing = (float) 720 * ((float) 1 / (float) 6);     // normally 1/6 inch line spacing - (float) 30*((float)pitch/(float)cpi);
 int cdpih = 120;                            // fixed dots per inch used for printing characters
@@ -86,9 +94,8 @@ int margintopp, marginbottomp;
 unsigned int page = 0;
 char filenameX[1000];
 char filenameY[1000];
-char *param;                // parameters passed to program
 int xdim, ydim;
-int sdlon = 1;              // sdlon=0 Do not copy output to SDL screen
+int sdlon = 0;              // sdlon=1 Copy output to SDL screen
 int state = 1;              // State of the centronics interface
 int countcharz;
 
@@ -443,63 +450,10 @@ void erasepage()
     memset(printermemory, WHITE , pageSetWidth * pageSetHeight);
 }
 
-int initialize()
+int initialize(const char* input_filename)
 {
-    // Set page size for input file
-    // Based it on support for 720dpi (24 pin printers)
-    // All settings have to be in inches - 1 mm = (1/25.4)"
-    pageSize = 0;
-
     // Choose PNG Generation mode - 1 = in memory (fast but uses a lot more memory), 2 = use external file (slower, but less memory)
     imageMode = 1;
-
-    switch (pageSize) {
-    case 0:
-        // A4 Portrait - standard Epson Margins
-        pageSetWidth = 5954; // 720 * 8.27"
-        pageSetHeight = 8417; // 720 * 11.69"
-        defaultMarginLeftp = 85; // 720 x 3mm
-        defaultMarginRightp = pageSetWidth - 85; // 720 x 3mm
-        defaultMarginTopp = 241; // 720 x 8.5mm
-        defaultMarginBottomp = pageSetHeight - 382; // 720 x 13.5mm
-        break;
-    case 1:
-        // A4 Landscape - standard Epson Margins - page orientation of margins etc carried out when creating pdf
-        pageSetWidth = 8417; // 720 * 11.69"
-        pageSetHeight = 5954; // 720 * 8.27"
-        defaultMarginLeftp = 85; // 720 x 3mm
-        defaultMarginRightp = pageSetWidth - 85; // 720 x 3mm
-        defaultMarginTopp = 241; // 720 x 8.5mm
-        defaultMarginBottomp = pageSetHeight - 382; // 720 x 13.5mm
-        break;
-    case 2:
-        pageSetWidth = 5811; // 720 * 205mm
-        pageSetHeight = 8640; // 720 * 12"
-        defaultMarginLeftp = 283; // 720 x 2.5mm
-        defaultMarginRightp = pageSetWidth - 283; // 720 x 2.5mm
-        defaultMarginTopp = 71; // 720 x 10mm
-        defaultMarginBottomp = pageSetHeight - 71; // 720 x 10mm
-        break;
-    case 3:
-        // A4 Portrait - 20mm margins
-        pageSetWidth = 5954; // 720 * 8.27"
-        pageSetHeight = 8417; // 720 * 11.69"
-        defaultMarginLeftp = 567; // 720 x 20mm
-        defaultMarginRightp = pageSetWidth - 284; // 720 x 10mm
-        defaultMarginTopp = 284; // 720 x 10mm
-        defaultMarginBottomp = pageSetHeight - 284; // 720 x 10mm
-        break;
-    case 4:
-        // A4 Landscape - 20mm margins - page orientation of margins etc carried out when creating pdf
-        pageSetWidth = 8417; // 720 * 11.69"
-        pageSetHeight = 5954; // 720 * 8.27"
-        defaultMarginLeftp = 284; // 720 x 10mm
-        defaultMarginRightp = pageSetWidth - 284; // 720 x 10mm
-        defaultMarginTopp = 567; // 720 x 20mm
-        defaultMarginBottomp = pageSetHeight - 284; // 720 x 10mm
-        break;
-
-    }
 
     marginleftp = defaultMarginLeftp;
     marginrightp = defaultMarginRightp;   // in pixels
@@ -509,8 +463,8 @@ int initialize()
     // Set aside enough memory to store the parsed image
     printermemory = malloc ((pageSetWidth+1) * pageSetHeight);
     if (printermemory == NULL) {
-        fprintf(stderr, "Can't allocate memory for Printer Conversion.\n");
-        exit (0);
+        fputs("Can't allocate memory for Printer Conversion.\n", stderr);
+        exit (1);
     }
     // For Delta Row compression - set aside room to store 4 seed rows (1 per supported colour)
     if (imageMode == 1 ) {
@@ -519,8 +473,8 @@ int initialize()
         if (imagememory == NULL) {
             free(printermemory);
             printermemory=NULL;
-            fprintf(stderr, "Can't allocate memory for PNG image.\n");
-            exit (0);
+            fputs("Can't allocate memory for PNG image.\n", stderr);
+            exit (1);
         }
         // For Delta Row compression - set aside room to store colourSupport (4 or 6) seed rows (1 per supported colour)
         // May as well use the imagememory temporarily for the seedrows
@@ -531,8 +485,8 @@ int initialize()
         if (seedrow == NULL) {
             free(printermemory);
             printermemory=NULL;
-            fprintf(stderr, "Can't allocate memory for Delta Row Printing.\n");
-            exit (0);
+            fputs("Can't allocate memory for Delta Row Printing.\n", stderr);
+            exit (1);
         }
     }
     erasepage();
@@ -621,7 +575,7 @@ int write_png(const char *filename, int width, int height, char *rgb)
         }
     } else {
         // Use LibPNG to create a PNG image on disk for conversion
-        printf("write   = %s \n", filenameX);
+        if (!quiet_mode) printf("write   = %s \n", filenameX);
         // Open file for writing (binary mode)
         file = fopen(filename, "wb");
         if (file == NULL) {
@@ -632,14 +586,14 @@ int write_png(const char *filename, int width, int height, char *rgb)
         // Initialize write structure
         png_ptr = png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
         if (png_ptr == NULL) {
-            fprintf(stderr, "PNG error - Could not allocate write structure\n");
+            fputs("PNG error - Could not allocate write structure\n", stderr);
             code = 0;
             goto finalise;
         }
         // Initialize info structure
         info_ptr = png_create_info_struct(png_ptr);
         if (info_ptr == NULL) {
-            fprintf(stderr, "PNG error - Could not allocate info structure\n");
+            fputs("PNG error - Could not allocate info structure\n", stderr);
             code = 0;
             goto finalise;
         }
@@ -647,7 +601,7 @@ int write_png(const char *filename, int width, int height, char *rgb)
         png_set_compression_level(png_ptr, 6);  // Minimal compression for speed - balance against time taken by convert routine
         // Setup Exception handling
         if (setjmp(png_jmpbuf(png_ptr))) {
-            fprintf(stderr, "Error during png creation\n");
+            fputs("Error during png creation\n", stderr);
             code = 0;
             goto finalise;
         }
@@ -666,7 +620,7 @@ int write_png(const char *filename, int width, int height, char *rgb)
         // Allocate memory for a rows (3 bytes per pixel - 8 bit RGB)
         row = (png_bytep) malloc(3 * width * sizeof(png_byte));
         if (row == NULL) {
-            fprintf(stderr, "Can't allocate memory for PNG file.\n");
+            fputs("Can't allocate memory for PNG file.\n", stderr);
             code = 0;
             goto finalise;
         }
@@ -703,9 +657,13 @@ finalise:
 
 void pdf_error_handler (HPDF_STATUS error_no, HPDF_STATUS detail_no, void *user_data)
 {
-    printf ("ERROR: error_no=%04X, detail_no=%u\n", (HPDF_UINT)error_no,
-                (HPDF_UINT)detail_no);
+    fprintf(stderr, "ERROR: error_no=%04X, detail_no=%u\n", (HPDF_UINT)error_no, (HPDF_UINT)detail_no);
     longjmp(env, 1);
+}
+
+HPDF_REAL ScaleDPI(HPDF_REAL size)
+{
+    return (float) size * (72.0F / (float) printerdpih);
 }
 
 int write_pdf (const char *filename, const char *pdfname, int width, int height)
@@ -717,7 +675,7 @@ int write_pdf (const char *filename, const char *pdfname, int width, int height)
 
     pdf = HPDF_New (pdf_error_handler, NULL);
     if (!pdf) {
-        printf ("error: cannot create PdfDoc object\n");
+        fputs("error: cannot create PdfDoc object\n", stderr);
         return 1;
     }
 
@@ -735,26 +693,8 @@ int write_pdf (const char *filename, const char *pdfname, int width, int height)
     /* add a new page object. */
     page = HPDF_AddPage (pdf);
 
-    HPDF_REAL ScaleDPI(HPDF_REAL size) { return (float) size * (72.0F / (float) printerdpih); }
-
-    switch (pageSize) {
-    case 0:
-    case 3:
-        // A4
-        HPDF_Page_SetSize(page, HPDF_PAGE_SIZE_A4, HPDF_PAGE_PORTRAIT);
-        break;
-    case 1:
-    case 4:
-        // A4 Landscape
-        HPDF_Page_SetSize(page, HPDF_PAGE_SIZE_A4, HPDF_PAGE_LANDSCAPE);
-        break;
-    case 2:
-        // 12" Paper - US Single Sheet
-        HPDF_Page_SetWidth (page, ScaleDPI(width));
-        HPDF_Page_SetHeight (page, ScaleDPI(height));
-        break;
-    }
-
+    HPDF_Page_SetWidth (page, ScaleDPI(width));
+    HPDF_Page_SetHeight (page, ScaleDPI(height));
 
     dst = HPDF_Page_CreateDestination (page);
     HPDF_Destination_SetXYZ (dst, 0, HPDF_Page_GetHeight (page), 1);
@@ -948,7 +888,9 @@ int curVtab = 0;                            // next active vertical tab
 int hPixelWidth, vPixelWidth;
 FILE *f;
 FILE *fp = NULL;
-char fontx[2049000];
+
+#define FONT_SIZE  4096
+char fontx[FONT_SIZE];
 
 void erasesdl()
 {
@@ -1743,25 +1685,19 @@ void bitimage_graphics(int mode, int dotColumns) {
     }
 }
 
-// Loads a font with 16bytes per char, first 128 characters, so 2048 and not more!
+// Loads a font with 16bytes per char.
 // Returns 1 if ok and -1 if not OK
-int openfont(char *filename)
+int openfont(const char *filename)
 {
-    char chr = 'A';
-    int i = 0;
     FILE *font;
     font = fopen(filename, "r");
     if (font == NULL) return -1;
-    while (!feof(font)) {
-        chr = fgetc(font);
-        fontx[i] = chr;
-        i++;                // printf("%d\n",i);
-    }
+    if (fread(fontx, 1, FONT_SIZE, font) != FONT_SIZE) return -1;
     fclose(font);
     return 1;
 }
 
-int direction_of_char = 0;
+int direction_of_char = 1;
 int printcharx(unsigned char chr)
 {
     unsigned int adressOfChar = 0;
@@ -2065,7 +2001,7 @@ void print_character(unsigned char xChar)
     }
     // If out of paper area on the right side, do a newline and shift
     // printer head to the left
-    if (xpos > ((pageSetWidth - 1) - hPixelWidth * 8)) {
+    if (xpos > (marginrightp - hPixelWidth * 8)) {
         xpos = marginleftp;
         ypos = ypos + line_spacing;
     }
@@ -2093,33 +2029,16 @@ void makeallpaths()
     system(x);
 }
 
-// Convert string to lower case
-char* lowerCaseWord(char* a)
-{
-    int i;
-    char *b=malloc(sizeof(char) * strlen(a));
-
-    for (i = 0; i < strlen(a); i++) {
-        b[i] = tolower(a[i]);
-    }
-    return b;
-}
-
-char* readFileParameter(char filename[100])
+char* readFileParameter(const char* filename, char* dest, size_t maxlen)
 {
     FILE *FL;
-    char ch;
-    int i;
-    char *parameter=malloc(sizeof(char) * 200);
-
     FL = fopen(filename, "r");
-    i=0;
     if (FL != NULL) {
-        fgets (parameter, 200, FL);
-        printf("%s parameter = %s \n", filename, parameter);
+        fgets(dest, maxlen - 1, FL);
+        if (!quiet_mode) printf("%s parameter = %s \n", filename, dest);
         fclose(FL);
     }
-    return lowerCaseWord(parameter);
+    return dest;
 }
 
 int convertUnixWinMac(char * source,char * destination)
@@ -2132,11 +2051,11 @@ int convertUnixWinMac(char * source,char * destination)
     destinationFile = fopen(destination,"w");
 
     if (NULL==sourceFile) {
-      printf("Could not open raw file for reading ---> %s\n",source);
+      fprintf(stderr, "Could not open raw file for reading ---> %s\n",source);
       return -1;
     }
     if (NULL==destinationFile){
-      printf("Could not open raw file for writing ---> %s\n",destination);
+      fprintf(stderr, "Could not open raw file for writing ---> %s\n",destination);
       return -1;
     }
     bytex=fgetc(sourceFile);
@@ -2203,84 +2122,445 @@ nowrite:
     fclose(sourceFile);
 }
 
-// args[1] is the file to be load
-// args[2] is the divisor to reduce SDL window size.  3 is a good value for starting
-int main(int argc, char *args[])
+void set_page_size(double width, double height)
+{
+    // Set page size.
+    // Based it on support for 720dpi (24 pin printers)
+    // All settings have to be in inches - 1 mm = (1/25.4)"
+    pageSetWidth  = (int)(printerdpih * (width  / 25.4));
+    pageSetHeight = (int)(printerdpiv * (height / 25.4));
+}
+
+void set_page_margin(double left, double right, double top, double bottom)
+{
+    // Set margins. Page size has to be set first!
+    // Based it on support for 720dpi (24 pin printers)
+    // All settings have to be in inches - 1 mm = (1/25.4)"
+
+    defaultMarginLeftp   = (int)(printerdpih * (left / 25.4));
+    defaultMarginRightp  = pageSetWidth - (int)(printerdpih * (right / 25.4));
+    defaultMarginTopp    = (int)(printerdpiv * (top / 25.4));
+    defaultMarginBottomp = pageSetHeight - (int)(printerdpiv * (bottom / 25.4));
+}
+
+void usage(const char* progname)
+{
+    printf("Usage: %s -o PATH -f FONT [OPTIONS] [FILE]\n", progname);
+    printf("       %s -h\n", progname);
+    printf("       %s -v\n", progname);
+
+    puts("\nMandatory arguments:");
+    puts("  -o PATH              Where to store the output files.");
+    puts("  -f FONT              Use the specified font file.");
+
+    puts("\nOPTIONS:");
+    puts("  -d DIR               Set font direction:");
+    puts("                         left");
+    puts("                         right (default)");
+    puts("  -s [NUM]             Display printout in sdl window.");
+    puts("                       Optional numeric argument reduces sdl display to that");
+    puts("                       percentage of original size.");
+    puts("  -p NUM               Select predifined page size:");
+    puts("                         0: A4 portrait (210 x 297 mm) (default)");
+    puts("                         1: A4 landscape (297 x 210 mm)");
+    puts("                         2: 12\" paper - US Single Sheet (8 x 12\")");
+    puts("  or:");
+    puts("  -p W,H               Select custom page size in millimeters:");
+    puts("                         W: width");
+    puts("                         H: height");
+    puts("  -m [L],[R],[T],[B]   Set page margins in millimeters.");
+    puts("                       You can leave fields blank to keep the default values:");
+    puts("                         L (left):    3.0 mm (paper size 2:  2.5 mm)");
+    puts("                         R (right):   3.0 mm (paper size 2:  2.5 mm)");
+    puts("                         T (top):     8.5 mm (paper size 2: 10.0 mm)");
+    puts("                         B (bottom): 13.5 mm (paper size 2: 10.0 mm)");
+    puts("  or:");
+    puts("  -m V,H               Set page margins in millimeters:");
+    puts("                         V: vertical sides (left and right)");
+    puts("                         H: horizontal sides (top and bottom)");
+    puts("  or:");
+    puts("  -m A                 Set page margins in millimeters for all sides.");
+    puts("  -l STR               Sets linefeed endings:");
+    puts("                         none:    No conversion (default)");
+    puts("                         unix:    Unix (LF).");
+    puts("                         windows: Windows (CR+LF)");
+    puts("                         mac:     MAC (CR)");
+    puts("  -8                   Use 8 bit characters.");
+    puts("  -i                   Use character codes 160-255 as italics.");
+    puts("  -q                   Be quiet, don't write any messages.");
+
+    puts("\nInformational arguments:");
+    puts("  -h                   Display this help and exit.");
+    puts("  -v                   Display version information and exit.");
+
+    puts("\nThe options '-8' and '-i' cannot be combined.");
+
+    puts("\nIf no file is specified, input will be read from stdin.");
+
+    puts("");
+}
+
+void usage_hint(const char* progname)
+{
+    fprintf(stderr, "Try '%s -h' for more information.\n", progname);
+}
+
+int main(int argc, char *argv[])
 {
     unsigned char xd = 0;
-    unsigned int pixelz = 0;
     int xposold;
-    int i, j, countcharz = 0;
-    char *config;
+    int i, j;
+    int opt;
+    const char* fontfile = NULL;
+    const char* input_filename = NULL;
     FILE *FL;
+    double sizeh, sizev;
+    double leftm, rightm, topm, bottomm;
+
+    if (argc == 2) {
+        if (strcmp(argv[1], "-h") == 0) {
+            usage(argv[0]);
+            return 0;
+        } else if (strcmp(argv[1], "-v") == 0) {
+            printf("%s %s\n", basename(argv[0]), version);
+            return 0;
+        }
+    }
 
     cpulimit();
-    if (argc < 5) {
-        printf("Usage: ./printerToPDF <divisor> <font> <font_direction> <sdl> <path> <file>\n\n");
-        printf("Usage: ./printerToPDF 4 3 font2/SIEMENS.C16 1 sdlon /home/pi/data\n \n");
-        printf("divisor=30  --> reduce sdl display to 30 percent of original size\n");
-        printf("font=font2/SIEMENS.C16      --> rload this font in font memory area\n");
-        printf("font_direction=1   --> 0=lsb left 1=lsb right\n");
-        printf("sdl=sdlon          --> display printout in sdl window\n");
-        printf("path=/home/pi/data --> store all in this directory\n");
-        printf("file=./Test1.prn   --> file to convert\n");
-        goto raus;
-    }
-    printf("\n");
-
-    outputFormatText=2;
 
     // get default from /root/config/linefeed_ending
     if (cfileexists(LINEFEED_CONFIG)) {
-        config = readFileParameter(LINEFEED_CONFIG);
-        if (strcmp(config,"unix") == 0) {
+        char buffer[256];
+        readFileParameter(LINEFEED_CONFIG, buffer, sizeof(buffer) - 1);
+        if (strcasecmp(buffer,"unix") == 0) {
             outputFormatText=1;
-        } else if (strncmp(config,"windows", 7) == 0) {
+        } else if (strncasecmp(buffer,"windows", 7) == 0) {
             outputFormatText=2;
-        } else if (strncmp(config,"mac", 3) == 0) {
+        } else if (strncasecmp(buffer,"mac", 3) == 0) {
             outputFormatText=3;
         }
     }
 
-    // Parse the parameters in case they override the defaults
+    path[0] = '\0';
 
-    for (i = 0; i < argc; i++) {
-        param = lowerCaseWord(args[i]); // Convert to lower case
+    // get default from /root/config/output_path
+    if (cfileexists(PATH_CONFIG)) {
+        FL=fopen(PATH_CONFIG, "r");
+        fscanf(FL, "%s", path);
+        fclose(FL);
+    }
 
-        // End of Line Conversions
-        if (strcmp(param,"unix") == 0) {
-            outputFormatText=1;
-            printf("Unix-mode on (LF).\n");
-        } else if (strncmp(param,"windows", 7) == 0) {
-            outputFormatText=2;
-            printf("Windows-mode on (CR+LF).\n");
-        } else if (strncmp(param,"mac", 3) == 0) {
-            outputFormatText=3;
-            printf("MAC-mode on (CR).\n");
+    sizeh   = 210.0;
+    sizev   = 297.0;
+    leftm   =   3.0;
+    rightm  =   3.0;
+    topm    =   8.5;
+    bottomm =  13.5;
+
+    // Parse command line arguments
+
+    int margin_set = 0;
+
+    do {
+        opt = getopt(argc, argv, "f:d:s::o:p:m:l:8iq");
+
+        switch (opt) {
+            case 'f':
+                fontfile = optarg;
+                break;
+
+            case 'd':
+                if (strcasecmp(optarg, "left") == 0) {
+                    direction_of_char = 0;
+                } else if (strcasecmp(optarg, "right") == 0) {
+                    direction_of_char = 1;
+                } else {
+                    fprintf(stderr, "%s: invalid font direction: '%s'\n", argv[0], optarg);
+                    return 2;
+                }
+
+                break;
+
+            case 's':
+                sdlon = 1;
+
+                if (optarg != NULL) {
+                    int err = 0;
+                    char* endptr;
+
+                    divi = strtof(optarg, &endptr);
+
+                    if (errno == ERANGE || *endptr != '\0') {
+                        err = 1;
+                    } else if (divi <= 0.0 || divi > 100.0) {
+                        err = 1;
+                    } else {
+                        divi = 100.0 / divi;
+                    }
+
+                    if (err) {
+                        fprintf(stderr, "%s: invalid percentage '%s'\n", argv[0], optarg);
+                        return 2;
+                    }
+                }
+
+                break;
+
+            case 'o':
+                strcpy(path, optarg);
+                break;
+
+            case 'p':
+                if (strcmp(optarg, "0") == 0) {
+                    sizeh = 210.0;
+                    sizev = 297.0;
+
+                    if (!margin_set) {
+                        leftm   =  3.0;
+                        rightm  =  3.0;
+                        topm    =  8.5;
+                        bottomm = 13.5;
+                    }
+                } else if (strcmp(optarg, "1") == 0) {
+                    sizeh = 297.0;
+                    sizev = 210.0;
+
+                    if (!margin_set) {
+                        leftm   =  3.0;
+                        rightm  =  3.0;
+                        topm    =  8.5;
+                        bottomm = 13.5;
+                    }
+                } else if (strcmp(optarg, "2") == 0) {
+                    sizeh = 205.0;
+                    sizev = 304.8;
+
+                    if (!margin_set) {
+                        leftm   =  2.5;
+                        rightm  =  2.5;
+                        topm    = 10.0;
+                        bottomm = 10.0;
+                    }
+                } else {
+                    char* pos_comma = strchr(optarg, ',');
+                    int err = 0;
+
+                    if (pos_comma == NULL) {
+                        err = 1;
+                    } else {
+                        double width, height;
+                        char* endptr;
+
+                        *pos_comma = '\0';
+                        width = strtod(optarg, &endptr);
+
+                        if (errno == ERANGE || *endptr != '\0') {
+                            err = 1;
+                        }
+
+                        *pos_comma = ',';
+
+                        if (!err) {
+                            height = strtod(pos_comma + 1, &endptr);
+
+                            if (errno == ERANGE || *endptr != '\0') {
+                                err = 1;
+                            } else {
+                                sizeh = width;
+                                sizev = height;
+                            }
+                        }
+                    }
+
+                    if (err) {
+                        fprintf(stderr, "%s: invalid page size '%s'\n", argv[0], optarg);
+                        return 2;
+                    }
+                }
+
+                break;
+
+            case 'm':
+                {
+                    double margin[4] = { 3.0, 3.0, 8.5, 13.5 };
+                    char*  start[5]  = { optarg, NULL, NULL, NULL, NULL };
+
+                    double *left = NULL, *right = NULL, *top = NULL, *bottom = NULL;
+                    char* endptr;
+                    int err = 0;
+
+                    for (int i = 1; i < sizeof(start) / sizeof(start[0]); ++i) {
+                        start[i] = strchr(start[i - 1], ',');
+
+                        if (start[i] == NULL) {
+                            break;
+                        } else {
+                            ++start[i];
+                        }
+                    }
+
+                    if (start[1] == NULL) {
+                        // Only one margin specified -> set for all sides
+                        left   = &margin[0];
+                        right  = &margin[0];
+                        top    = &margin[0];
+                        bottom = &margin[0];
+                    } else if (start[2] == NULL) {
+                        // Two values specified -> first one for vertical sides and second one for horizontal sides
+                        left   = &margin[0];
+                        right  = &margin[0];
+                        top    = &margin[1];
+                        bottom = &margin[1];
+                    } else if (start[3] != NULL && start[4] == NULL) {
+                        // Four values specified
+                        left   = &margin[0];
+                        right  = &margin[1];
+                        top    = &margin[2];
+                        bottom = &margin[3];
+                    } else {
+                        // Three or more than four values specified
+                        err = 1;
+                    }
+
+                    for (int i = 0; i < 4 && !err; ++i) {
+                        if (start[i] == NULL) {
+                            break;
+                        } else if (*start[i] != '\0') {
+                            char* endptr;
+
+                            if (start[i + 1] != NULL) {
+                                start[i + 1][-1] = '\0';
+                            }
+
+                            if (*start[i] != '\0') {
+                                margin[i] = strtod(start[i], &endptr);
+
+                                if (errno == ERANGE || *endptr != '\0') {
+                                    err = 1;
+                                }
+                            }
+
+                            if (start[i + 1] != NULL) {
+                                start[i + 1][-1] = ',';
+                            }
+                        }
+                    }
+
+                    if (err) {
+                        fprintf(stderr, "%s: invalid margin: '%s'\n", argv[0], optarg);
+                        return 2;
+                    } else {
+                        leftm      = *left;
+                        rightm     = *right;
+                        topm       = *top;
+                        bottomm    = *bottom;
+                        margin_set = 1;
+                    }
+                }
+
+                break;
+
+            case 'l':
+                if (strcasecmp(optarg, "unix") == 0) {
+                    outputFormatText=1;
+                } else if (strcasecmp(optarg, "windows") == 0) {
+                    outputFormatText=2;
+                } else if (strcasecmp(optarg, "mac") == 0) {
+                    outputFormatText=3;
+                } else {
+                    fprintf(stderr, "%s: invalid linefeed ending: '%s'\n", argv[0], optarg);
+                    return 2;
+                }
+
+                break;
+
+            case '8':
+                if (useItalicsCharSet) {
+                    fprintf(stderr, "%s: options '-8' and '-i' cannot be combined\n", argv[0]);
+                    usage_hint(argv[0]);
+                    return 2;
+                } else {
+                    use8bitchars = 1;
+                }
+
+                break;
+
+            case 'i':
+                if (use8bitchars) {
+                    fprintf(stderr, "%s: options '-8' and '-i' cannot be combined.\n", argv[0]);
+                    usage_hint(argv[0]);
+                    return 2;
+                } else {
+                    useItalicsCharSet = 1;
+                }
+
+                break;
+
+            case 'q':
+                quiet_mode = 1;
+                break;
+
+            case ':':
+            case '?':
+                usage_hint(argv[0]);
+                return 2;
+
+            default:
+                break;
+
         }
-    }
+    } while (opt >= 0);
 
-    printf("delays around ack: t1=%d    t2=%d    t3=%d    t4=%d    t5=%d\n",t1,t2,t3,t4,t5);
-
-    if (argc >= 8) {
-        input_filename = args[7];
-    }
-
-    if (argc >= 7) {
-        // Grab the path offset
-        strcpy(path, args[6]);
-    } else {
-        path[0] = '\0';
+    if (fontfile == NULL) {
+        fprintf(stderr, "%s: no font specified.\n", argv[0]);
+        usage_hint(argv[0]);
+        return 2;
     }
 
     if (path[0] == '\0') {
-        // get default from /root/config/output_path
-        if (cfileexists(PATH_CONFIG)) {
-            FL=fopen(PATH_CONFIG, "r");
-            fscanf(FL, "%s", path);
-            fclose(FL);
-        }
+        fprintf(stderr, "%s: no output path specified.\n", argv[0]);
+        usage_hint(argv[0]);
+        return 2;
     }
+
+    if (optind < argc) {
+        if (optind + 1 < argc) {
+            fprintf(stderr, "%s: too many files specified.\n", argv[0]);
+            usage_hint(argv[0]);
+            return 2;
+        } else {
+            input_filename = argv[optind];
+        }
+    } else {
+        input_filename = "/dev/stdin";
+    }
+
+    set_page_size(sizeh, sizev);
+    set_page_margin(leftm, rightm, topm, bottomm);
+
+    switch (outputFormatText) {
+        case 1:
+            puts("Unix-mode on (LF).");
+            break;
+
+        case 2:
+            puts("Windows-mode on (CR+LF).");
+            break;
+
+        case 3:
+            puts("MAC-mode on (CR).");
+            break;
+
+        default:
+            break;
+
+    }
+
+    if (!quiet_mode) {
+        printf("\ndelays around ack: t1=%d    t2=%d    t3=%d    t4=%d    t5=%d\n",t1,t2,t3,t4,t5);
+    }
+
     if (path[strlen(path) - 1] != '/') {
         strcat(path, "/");
     }
@@ -2306,21 +2586,13 @@ int main(int argc, char *args[])
     page = dirX(pathpdf) + 1;
 
     // goto raus;
-    initialize();
+    initialize(input_filename);
 
-    openfont(args[3]);
-    direction_of_char = atoi(args[4]);
-    if (argc >= 6) {
-        if (strcmp(args[5], "sdloff") == 0) {
-            sdlon = 0;
-        }
-    }
-
-    divi = 100 / atof(args[2]);
+    openfont(fontfile);
 
     if (sdlon) {
         if (SDL_Init(SDL_INIT_VIDEO) != 0) {
-            printf("Error on SDL init\n");
+            fputs("Error on SDL init\n", stderr);
             exit(1);
         }
     }
@@ -2331,7 +2603,7 @@ int main(int argc, char *args[])
     if (sdlon) {
         display = SDL_SetVideoMode(xdim, ydim, 24, SDL_HWSURFACE);
         if (display == NULL) {
-            printf("Error on SDL display mode setting\n");
+            fputs("Error on SDL display mode setting\n", stderr);
             exit(1);
         }
         // Set the title bar
@@ -3554,9 +3826,11 @@ main_loop_for_printing:
                                 break;
                             }
 
-                            printf("underlined  %d\n",underlined);
-                            printf("strikethrough  %d\n",strikethrough);
-                            printf("overscore  %d\n",overscore);
+                            if (!quiet_mode) {
+                                printf("underlined  %d\n",underlined);
+                                printf("strikethrough  %d\n",strikethrough);
+                                printf("overscore  %d\n",overscore);
+                            }
                         }
                         break;
                     case 'C':
@@ -3936,7 +4210,7 @@ main_loop_for_printing:
                 case 'j':
                     // ESC j n Reverse paper feed n/216 inches
                     state = read_byte_from_file((char *) &nL);
-                    ypos = ypos - ((float) 720 * ((float) nL /(float) 216));
+                    ypos = ypos - ((float) printerdpiv * ((float) nL /(float) 216));
                     if (ypos < margintopp) ypos = margintopp;
                     break;
                 case 'c':
@@ -4141,7 +4415,7 @@ main_loop_for_printing:
     if (sdlon) SDL_UpdateRect(display, 0, 0, 0, 0);
     if (state && i == 0) goto main_loop_for_printing;
 
-    printf("\n\nI am at page %d\n", page);
+    if (!quiet_mode) printf("\n\nI am at page %d\n", page);
 
     sprintf(filenameX, "%spage%d.png", pathpng, page);
     int dataToConvert = write_png(filenameX, pageSetWidth, pageSetHeight, printermemory);
@@ -4149,7 +4423,11 @@ main_loop_for_printing:
     if (outputFormatText == 0) {
         // No end of line conversion required
         sprintf(filenameX, "cp  %s  %s ", input_filename,patheps);
-        printf("command = %s \n", filenameX);
+        if (quiet_mode) {
+            strcat(filenameX, " >/dev/null");
+        } else {
+            printf("command = %s \n", filenameX);
+        }
         system(filenameX);
     } else {
         sprintf(filenameX, "%s", input_filename);
