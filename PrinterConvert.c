@@ -1689,12 +1689,22 @@ void bitimage_graphics(int mode, int dotColumns) {
 // Returns 1 if ok and -1 if not OK
 int openfont(const char *filename)
 {
+    int rc = 1;
     FILE *font;
+
     font = fopen(filename, "r");
-    if (font == NULL) return -1;
-    if (fread(fontx, 1, FONT_SIZE, font) != FONT_SIZE) return -1;
-    fclose(font);
-    return 1;
+
+    if (font == NULL) {
+        rc = -1;
+    } else {
+        if (fread(fontx, 1, FONT_SIZE, font) != FONT_SIZE) {
+            rc = -1;
+        }
+
+        fclose(font);
+    }
+
+    return rc;
 }
 
 int direction_of_char = 1;
