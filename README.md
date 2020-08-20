@@ -79,7 +79,7 @@ Options:
 
                             <b>OR</b>
                             
-    -m A                    Set same margis in millimeters for all sides
+    -m A                    Set same margins in millimeters for all sides
     -l STR                  Set linefeed ending:
                             none: No conversion (default)
                             unix:    Unix (LF)
