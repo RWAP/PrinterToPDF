@@ -39,17 +39,20 @@ On some versions of Linux, you will need to change the reference in line 8 to re
 and on line 9 to read:
 <code>#include "/usr/local/include/SDL/SDL.h"</code>
 
+To compile the program, simply run `make`.
 
-To compile the program use the following command:
+<b>INSTALLATION</b>
 
-```gcc PrinterConvert.c `sdl-config --cflags --libs` -o printerToPDF -lrt -lhpdf -lpng```
+`make install` installs the executable to `/usr/bin`, and the font files to `/usr/lib/PrinterToPDF`. You can override the destination by passing a value for `prefix`. For example, to install in `/usr/local/bin` and `/usr/local/lib/PrinterToPDF`, type the following:
+
+`make prefix=/usr/local install`
 
 
-<b>Usage</b>
+<b>USAGE</b>
 PrinterToPDF allows various parameters to be passed as part of the command line.  These can be passed in any order.
 
 Call it with 
-``./PrinterToPDF -o PATH -f FONT [OPTIONS] [FILE]``
+`printerToPDF -o PATH -f FONT [OPTIONS] [FILE]`
 
 Mandatory Options are:
     -o PATH                 A directory to store the output files (eg. /home/pi/data/) 
@@ -96,7 +99,7 @@ Options:
                             
 The default would be:
 
-``./PrinterToPDF -o PATH -f FONT -d right -p 0 -m 3,3,8.5,13.5 -l none``
+`printerToPDF -o PATH -f FONT -d right -p 0 -m 3,3,8.5,13.5 -l none`
 
 
 
