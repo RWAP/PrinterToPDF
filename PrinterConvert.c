@@ -971,10 +971,10 @@ void _print_seedRows(float hPixelWidth, float vPixelWidth){
                     if (isNthBitSet(xd,xByte)) {
                         putpixelbig(xpos, ypos, hPixelWidth, vPixelWidth);
                     }
-                    xpos = xpos + hPixelWidth;
+                    xpos += hPixelWidth;
                 }
             } else {
-                xpos = xpos + (hPixelWidth * (bitOffset + 1));
+                xpos += hPixelWidth * (bitOffset + 1);
             }
             bitOffset=7;
         }
@@ -1000,7 +1000,7 @@ void _print_incomingDataByte(int compressMode, unsigned char xd, int seedrowStar
                 }
             }
         }
-        xpos = xpos + (hPixelWidth * 8);
+        xpos += hPixelWidth * 8;
     } else {
         for (xByte = 0; xByte < 8; xByte++) {
             if (compressMode == 3) {
@@ -1021,7 +1021,7 @@ void _print_incomingDataByte(int compressMode, unsigned char xd, int seedrowStar
                 putpixelbig(xpos, ypos, hPixelWidth, vPixelWidth);
             }
             xd = xd << 1;
-            xpos = xpos + hPixelWidth;
+            xpos += hPixelWidth;
         }
     }
 }
@@ -1200,7 +1200,7 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
         // See ESC ( U command for unit
         thisDefaultUnit = defaultUnit;
         if (defaultUnit == 0) thisDefaultUnit = printerdpiv / (float) 360; // Default for command is 1/360 inch units
-        ypos = ypos + (parameter * (int) thisDefaultUnit);
+        ypos += parameter * (int) thisDefaultUnit;
         test_for_new_paper();
         if (compressMode == 3) _print_seedRows(hPixelWidth, vPixelWidth);
         xpos = marginleftp;
@@ -1228,7 +1228,7 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
         }
         thisDefaultUnit = defaultUnit;
         if (defaultUnit == 0) thisDefaultUnit = printerdpiv / (float) 360; // Default for command is 1/360 inch units
-        ypos = ypos + (parameter * (int) thisDefaultUnit);
+        ypos += parameter * (int) thisDefaultUnit;
         test_for_new_paper();
         if (compressMode == 3) _print_seedRows(hPixelWidth, vPixelWidth);
         xpos = marginleftp;
@@ -1255,7 +1255,7 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
                     printermemory[byteOffset] = WHITE;
                     if (sdlon == 1) {
                         putpixelbig(xpos, ypos, hPixelWidth, vPixelWidth);
-                        xpos = xpos + hPixelWidth;
+                        xpos += hPixelWidth;
                     }
                 }
                 printColour = colour;
@@ -1321,7 +1321,7 @@ _8pin_line_bitmap_print(int dotColumns, float hPixelWidth, float vPixelWidth,
                 xd = xd << 1;
             }
         }
-        xpos = xpos + hPixelWidth;
+        xpos += hPixelWidth;
     }
   raus_8p:
     return;
@@ -1334,41 +1334,41 @@ _9pin_line_bitmap_print(int dotColumns, float hPixelWidth, float vPixelWidth,
     // bitmap graphics printing - prints bytes vertically - special case for ESC ^ command
     int opr, fByte, xByte;
     unsigned char xd;
-    test_for_new_paper();
+    float right_pos, byteWidth;
+    right_pos = marginrightp - hPixelWidth * 8;    
+    byteWidth = 8 * vPixelWidth;   
+    test_for_new_paper(0);
     for (opr = 0; opr < dotColumns; opr++) {
-        state = 0;
-        while (state == 0) {
-            state = read_byte_from_file((char *) &xd);  // byte1
-            if (state == 0) goto raus_9p;
-        }
-        if (xd) {
-            for (xByte = ypos; xByte < ypos + 8 * vPixelWidth; xByte+= vPixelWidth) {
-                if (xd & 128) {
-                    if ((adjacentDot == 0) && (precedingDot(xpos, xByte) == 1)) {
-                        // Miss out second of two consecutive horizontal dots
-                    } else {
-                        putpixelbig(xpos, xByte, hPixelWidth, vPixelWidth);
+        state = read_byte_from_file((char *) &xd);  // byte1
+        if (state == 0) goto raus_9p;
+        // If out of paper area on the right side, do nothing
+        if (xpos <= right_pos) {         
+            if (xd) {
+                for (xByte = ypos; xByte < ypos + byteWidth; xByte+= vPixelWidth) {
+                    if (xd & 128) {
+                        if (!adjacentDot && precedingDot(xpos, xByte)) {
+                            // Miss out second of two consecutive horizontal dots
+                        } else {
+                            putpixelbig(xpos, xByte, hPixelWidth, vPixelWidth);
+                        }
                     }
+                    xd = xd << 1;
                 }
-                xd = xd << 1;
             }
-        }
-        // Read pin 9
-        state = 0;
-        while (state == 0) {
+            // Read pin 9
             state = read_byte_from_file((char *) &xd);  // byte2
             if (state == 0) goto raus_9p;
-        }
-        if (xd & 1) {
-            if ((adjacentDot == 0) && (precedingDot(xpos, ypos + 9 * vPixelWidth) == 1)) {
-                // Miss out second of two consecutive horizontal dots
-            } else {
-                putpixelbig(xpos, ypos + 9 * vPixelWidth, hPixelWidth, vPixelWidth);
+            if (xd & 128) {
+                if (!adjacentDot && precedingDot(xpos, ypos + 8 * vPixelWidth)) {
+                    // Miss out second of two consecutive horizontal dots
+                } else {
+                    putpixelbig(xpos, ypos + 8 * vPixelWidth, hPixelWidth, vPixelWidth);
+                }
             }
+            xpos += hPixelWidth;
         }
-        xpos = xpos + hPixelWidth;
         // SDL_UpdateRect(display, 0, 0, 0, 0);
-    }
+    }    
   raus_9p:
     return;
 }
@@ -1404,7 +1404,7 @@ _24pin_line_bitmap_print(int dotColumns, float hPixelWidth, float vPixelWidth,
                 }
             }
         }
-        xpos = xpos + hPixelWidth;
+        xpos += hPixelWidth;
         // SDL_UpdateRect(display, 0, 0, 0, 0);
     }
   raus_24p:
@@ -1442,7 +1442,7 @@ _48pin_line_bitmap_print(int dotColumns, float hPixelWidth, float vPixelWidth,
                 }
             }
         }
-        xpos = xpos + hPixelWidth;
+        xpos += hPixelWidth;
         // SDL_UpdateRect(display, 0, 0, 0, 0);
     }
   raus_48p:
@@ -1454,9 +1454,15 @@ _line_raster_print(int bandHeight, int dotColumns, float hPixelWidth, float vPix
      float xzoom, float yzoom, int rleEncoded)
 {
     // Data is sent in horizontal bands of up to dotColumns high
-    int opr, xByte, j, band;
+    int opr, xByte, j, band, ypos2, byteCount;
     unsigned char xd, repeater;
+    float right_pos;
+    
+    right_pos = marginrightp - vPixelWidth;
     test_for_new_paper();
+    ypos2 = ypos;
+    byteCount = dotColumns/8;
+    
     for (band = 0; band < bandHeight; band++) {
         if (rleEncoded) {
             for (opr = 0; opr < dotColumns; opr++) {
@@ -1474,14 +1480,20 @@ _line_raster_print(int bandHeight, int dotColumns, float hPixelWidth, float vPix
                             state = read_byte_from_file((char *) &xd);  // byte to be printed
                             if (state == 0) goto raus_rasterp;
                         }
-                        if (xd) {
-                            for (xByte = 0; xByte < 8; xByte++) {
-                                if (xd & 128) putpixelbig(xpos, ypos2, hPixelWidth, vPixelWidth);
-                                xd = xd << 1;
-                                xpos = xpos + hPixelWidth;
+                        if (xpos <= right_pos) {                   
+                            if (xd) {
+                                for (xByte = 0; xByte < 8; xByte++) {
+                                    if (xpos <= right_pos) {
+                                        if (xd & 128) putpixelbig(xpos, ypos2, hPixelWidth, vPixelWidth);
+                                        xd = xd << 1;
+                                        xpos += hPixelWidth;
+                                    }
+                                }
+                            } else {
+                                xpos += hPixelWidth * 8;
                             }
                         } else {
-                            xpos = xpos + (hPixelWidth * 8);
+                            break;
                         }
                         opr++;
                         // SDL_UpdateRect(display, 0, 0, 0, 0);
@@ -1495,40 +1507,48 @@ _line_raster_print(int bandHeight, int dotColumns, float hPixelWidth, float vPix
                         if (state == 0) goto raus_rasterp;
                     }
                     for (j = 0; j < repeater; j++) {
-                        if (xd) {
-                            for (xByte = 0; xByte < 8; xByte++) {
-                                if (xd & 128) putpixelbig(xpos, ypos2, hPixelWidth, vPixelWidth);
-                                xd = xd << 1;
-                                xpos = xpos + hPixelWidth;
-                            }
+                        if (xpos <= right_pos) {                   
+                            if (xd) {
+                                for (xByte = 0; xByte < 8; xByte++) {
+                                    if (xpos <= right_pos) {
+                                        if (xd & 128) putpixelbig(xpos, ypos2, hPixelWidth, vPixelWidth);
+                                        xd = xd << 1;
+                                        xpos += hPixelWidth;
+                                    }
+                                }
+                            } else {
+                                xpos += hPixelWidth * 8;
+                            }    
                         } else {
-                            xpos = xpos + (hPixelWidth * 8);
+                            break;
                         }
-                        // SDL_UpdateRect(display, 0, 0, 0, 0);
                     }
                     opr++;
                 }
             }
         } else {
-            for (opr = 0; opr < dotColumns; opr++) {
+            for (opr = 0; opr < byteCount; opr++) {
                 state = 0;
                 while (state == 0) {
                     state = read_byte_from_file((char *) &xd);  // byte1
                     if (state == 0) goto raus_rasterp;
                 }
+                // If out of paper area on the right side, do nothing
                 if (xd) {
                     for (xByte = 0; xByte < 8; xByte++) {
-                        if (xd & 128) putpixelbig(xpos, ypos2, hPixelWidth, vPixelWidth);
-                        xd = xd << 1;
-                        xpos = xpos + hPixelWidth;
+                        if (xpos <= right_pos) {                   
+                            if (xd & 128) putpixelbig(xpos, ypos2, hPixelWidth, vPixelWidth);
+                            xd = xd << 1;
+                            xpos += hPixelWidth;
+                        }
                     }
                 } else {
-                    xpos = xpos + (hPixelWidth * 8);
+                    if (xpos <= right_pos) xpos += hPixelWidth * 8;
                 }
                 // SDL_UpdateRect(display, 0, 0, 0, 0);
             }
         }
-        ypos2 = ypos2 + vPixelWidth;
+        ypos2 += vPixelWidth;
     }
   raus_rasterp:
     return;
@@ -1870,7 +1890,7 @@ int printcharx(unsigned char chr)
         }
     }
     // Add the actual character width
-    xpos = xpos + (hPixelWidth * 8);
+    xpos += hPixelWidth * 8;
     // Add any character spacing - taking account of any continuous line scoring of printing
     if (character_spacing>0) {
         if ((underlined==1) || (underlined==2) || (strikethrough==1) || (strikethrough==2) || (overscore==1) || (overscore==2)) {
@@ -1895,7 +1915,7 @@ int printcharx(unsigned char chr)
             }
 
         } else {
-            xpos = xpos + character_spacing;
+            xpos += character_spacing;
         }
     }
 }
@@ -1971,7 +1991,7 @@ int print_space(int showUnderline)
     }
 
     // Add the actual character width
-    xpos = xpos + (hPixelWidth * 8);
+    xpos += hPixelWidth * 8;
     // Add any character spacing - taking account of any continuous line scoring of printing
     if (character_spacing>0) {
         if ((underlined==1) || (underlined==2) || (strikethrough==1) || (strikethrough==2) || (overscore==1) || (overscore==2)) {
@@ -1996,7 +2016,7 @@ int print_space(int showUnderline)
             }
 
         } else {
-            xpos = xpos + character_spacing;
+            xpos += character_spacing;
         }
     }
 }
@@ -2013,7 +2033,7 @@ void print_character(unsigned char xChar)
     // printer head to the left
     if (xpos > (marginrightp - hPixelWidth * 8)) {
         xpos = marginleftp;
-        ypos = ypos + line_spacing;
+        ypos += line_spacing;
     }
 }
 
@@ -2652,7 +2672,7 @@ main_loop_for_printing:
             // Epson ESC/P2 graphics mode - limited commands:
             switch (xd) {
             case 10:    // lf (0x0a)
-                ypos = ypos + line_spacing;
+                ypos += line_spacing;
                 xpos = marginleftp;
                 double_width_single_line = 0;
                 test_for_new_paper();
@@ -2666,7 +2686,7 @@ main_loop_for_printing:
             case 13:    // cr (0x0d)
                 xpos = marginleftp;
                 if (auto_LF) {
-                    ypos = ypos + line_spacing;
+                    ypos += line_spacing;
                     double_width_single_line = 0;
                     test_for_new_paper();
                 }
@@ -3090,7 +3110,7 @@ main_loop_for_printing:
                 } else {
                     hPixelWidth = (float) hPixelWidth * (((float) 120 / (float) cpi) / (float) 8);
                 }
-                xpos = xpos - hPixelWidth * 8;
+                xpos -= hPixelWidth * 8;
                 if (xpos < 0) xpos = xposold;
                 break;
             case 9:    // TAB
@@ -3113,7 +3133,7 @@ main_loop_for_printing:
                 break;
             case 10:    // lf (0x0a)
             case 138:
-                ypos = ypos + line_spacing;
+                ypos += line_spacing;
                 xpos = marginleftp;
                 double_width_single_line = 0;
                 test_for_new_paper();
@@ -3146,7 +3166,7 @@ main_loop_for_printing:
                     } else {
                         // LF
                         curVtab = 0; // No more tab marks
-                        ypos = ypos + line_spacing;
+                        ypos += line_spacing;
                         double_width_single_line = 0;
                     }
                 } else if (vTabulators[curVtab] > 0) {
@@ -3173,7 +3193,7 @@ main_loop_for_printing:
             case 141:
                 xpos = marginleftp;
                 if (auto_LF) {
-                    ypos = ypos + line_spacing;
+                    ypos += line_spacing;
                     double_width_single_line = 0;
                     test_for_new_paper();
                 }
@@ -3270,10 +3290,10 @@ main_loop_for_printing:
                     hPixelWidth = (float) hPixelWidth * (((float) 120 / (float) cpi) / (float) 8);
                     vPixelWidth = (float) vPixelWidth * ((float) charHeight / (float) 16);
                 }
-                xpos = xpos + hPixelWidth * 8;
+                xpos += hPixelWidth * 8;
                 if (xpos > ((pageSetWidth - 1) - vPixelWidth * 16)) {
                     xpos = marginleftp;
-                    ypos = ypos + vPixelWidth * 16;
+                    ypos += vPixelWidth * 16;
                 }
                 break;
             default:
@@ -3483,7 +3503,7 @@ main_loop_for_printing:
                     break;
                 case 'J':    // ESC J m Forward paper feed m/180 inches (ESC/P2)
                     state = read_byte_from_file((char *) &xd);
-                    ypos = ypos + (float) xd * (printerdpiv / (float) 180);
+                    ypos += (float) xd * (printerdpiv / (float) 180);
                     test_for_new_paper();
                     break;
                 case '?':    // ESC ? n m re-assign bit image mode
@@ -3555,6 +3575,7 @@ main_loop_for_printing:
                     hPixelWidth = printerdpih / (float) 60;
                     if (m == 1) hPixelWidth = printerdpih / (float) 120;
                     vPixelWidth = printerdpiv / (float) 72;
+                    line_spacing = 9 * vPixelWidth; // Fix - ensure that the line spacing is set to the same as 9 pin 72 dpi resolution in case it defaults to 60 or 120 dpi
                     dotColumns = nH << 8;
                     dotColumns = dotColumns | nL;
                     _9pin_line_bitmap_print(dotColumns, hPixelWidth, vPixelWidth, 1.0, 1.0, 1);
@@ -4211,7 +4232,7 @@ main_loop_for_printing:
                         for (k = 0; k < nL; k++) print_space(1);
                     } else {
                         // perform nL line feeds in current line spacing cancel double width printing set with SO or ESC SO
-                        ypos = ypos + (nL * line_spacing);
+                        ypos += nL * line_spacing;
                         xpos = marginleftp;
                         double_width_single_line = 0;
                         test_for_new_paper();
@@ -4220,7 +4241,7 @@ main_loop_for_printing:
                 case 'j':
                     // ESC j n Reverse paper feed n/216 inches
                     state = read_byte_from_file((char *) &nL);
-                    ypos = ypos - ((float) printerdpiv * ((float) nL /(float) 216));
+                    ypos -= (float) printerdpiv * ((float) nL /(float) 216);
                     if (ypos < margintopp) ypos = margintopp;
                     break;
                 case 'c':
@@ -4371,7 +4392,7 @@ main_loop_for_printing:
                     break;
                 case 10: // ESC LF
                     // Reverse line feed - Star NL-10
-                    ypos = ypos - line_spacing;
+                    ypos -= line_spacing;
                     xpos = marginleftp;
                     double_width_single_line = 0;
                     test_for_new_paper();
