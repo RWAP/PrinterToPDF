@@ -11,10 +11,10 @@
 #include "/usr/include/SDL/SDL.h"
 #include "dir.c"
 
-const char* version = "v1.7";
+const char* version = "v1.8";
 
 /* Conversion program to convert Epson ESC/P printer data to an Adobe PDF file on Linux.
- * v1.7
+ * v1.8
  *
  * v1.0 First Release - taken from the conversion software currently in development for the Retro-Printer module.
  * v1.1 Swithced to using libHaru library to create the PDF file for speed and potential future enhancements - see http://libharu.org/
@@ -40,6 +40,7 @@ const char* version = "v1.7";
  *      - Fix right margin issue (margin was ignored)
  *      - Load font data in one task calling fread()
  *      - Introduce quiet mode
+ * v1.8 - Fixed some errors in graphics printing and double height text
  *
  * www.retroprinter.com
  *
@@ -1820,24 +1821,24 @@ int printcharx(unsigned char chr)
     hPixelWidth = fontDotWidth;
     vPixelWidth = fontDotHeight;
 
-    if ((double_width == 1) || (double_width_single_line == 1)) {
-        hPixelWidth = hPixelWidth * 2;
-        character_spacing = character_spacing * 2;
+    if (double_width || double_width_single_line) {
+        hPixelWidth *= 2;
+        character_spacing *= 2;
     }
     if (double_height == 1) {
         // If ESC w sent on first line of page does NOT affect the first line
         // Move ypos back up page to allow base line of character to remain the same
         if ((chr!=32) && (ypos >= charHeight * vPixelWidth)) {
-            vPixelWidth = vPixelWidth * 2;
-            yposoffset = yposoffset - (charHeight * vPixelWidth); // Height of one character at double height = 2 x 24
+            yposoffset -= charHeight * vPixelWidth; // Height of one character at double height = 2 x 24
+            vPixelWidth *= 2;
         }
     }
     if (quad_height == 1) {
         // Star NL-10 ENLARGE command - does NOT affect the first line
         // Move ypos back up page to allow base line of character to remain the same
         if ((chr!=32) && (ypos >= charHeight * 3 * vPixelWidth)) {
-            vPixelWidth = vPixelWidth * 4;
-            yposoffset = yposoffset - (charHeight * 3 * vPixelWidth); // Height of one character at quad height = 4 x 24
+            yposoffset -= charHeight * 3 * vPixelWidth; // Height of one character at quad height = 4 x 24
+            vPixelWidth *= 4;
         }
     }
 
