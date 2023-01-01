@@ -89,6 +89,7 @@ Options:
                             windows: Windows (CR+LF)
                             mac:     MAC (CR)
     -8                      Use 8 Bit characters (CANNOT be used with -i)
+    -9                      Use 9 Pin printing (ESC/P standard for line feeds)
     -i                      Use character codes 160-255 as italics (CANNOT be used with -8)
     -q                      Quiet mode - do not output any messages
     
