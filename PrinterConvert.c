@@ -2217,6 +2217,7 @@ void usage(const char* progname)
     puts("                         windows: Windows (CR+LF)");
     puts("                         mac:     MAC (CR)");
     puts("  -8                   Use 8 bit characters.");
+    puts("  -9                   Set 9 pin printer mode.");
     puts("  -i                   Use character codes 160-255 as italics.");
     puts("  -q                   Be quiet, don't write any messages.");
 
@@ -2294,9 +2295,14 @@ int main(int argc, char *argv[])
     int margin_set = 0;
 
     do {
-        opt = getopt(argc, argv, "f:d:s::o:p:m:l:8iq");
+        opt = getopt(argc, argv, "f:d:s::o:p:m:l:89iq");
 
         switch (opt) {
+        
+            case '9':
+        	needles = 9;
+        	break;    	
+        
             case 'f':
                 fontfile = optarg;
                 break;

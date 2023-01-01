@@ -7,11 +7,18 @@ INSTALL = install -c
 INSTALL_PRG = $(INSTALL)
 INSTALL_DATA = $(INSTALL) -m 644
 
+ifneq ($(shell uname -p),x86_64)
 CFLAGS = -O3 \
          -mfloat-abi=hard \
          -funsafe-math-optimizations \
          -mno-unaligned-access \
          $(shell sdl-config --cflags)
+else
+CFLAGS = -O3 \
+         -funsafe-math-optimizations \
+         $(shell sdl-config --cflags)
+endif
+
 LDFLAGS = $(shell sdl-config --libs)
 LDLIBS = -lrt -lhpdf -lpng
 
