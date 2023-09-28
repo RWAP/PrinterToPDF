@@ -14,7 +14,7 @@ The PrinterConvert code works by creating a bitmap image in memory which is then
 RWAP Software
 January 2019
 
-<b>Quick start with Docker</b>  
+## Quick start with Docker
 Build Docker image.  
 <code>sudo docker build -t xxx/escp2pdf .</code>  
 Use Docker image to start a container.  
@@ -22,6 +22,7 @@ Use Docker image to start a container.
 Call the docker command to start the task.  
 <code>sudo docker exec -it escp2pdf printerToPDF -o /opt/output -f font2/Epson-Standard.C16 /opt/test.dat</code>  
 
+## Build on Linux
 <b>PRE-REQUISITES</b>
 You will need libpng, ImageMagick, SDL libHARU installed on Linux. 
 
@@ -55,7 +56,7 @@ To compile the program, simply run `make`.
 `make prefix=/usr/local install`
 
 
-<b>USAGE</b>
+## USAGE
 PrinterToPDF allows various parameters to be passed as part of the command line.  These can be passed in any order.
 
 Call it with 
