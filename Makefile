@@ -7,32 +7,32 @@ INSTALL = install -c
 INSTALL_PRG = $(INSTALL)
 INSTALL_DATA = $(INSTALL) -m 644
 
-ifeq ($(shell uname -m),x86_64)
+UNAME := $(shell uname)
+UNAME_M := $(shell uname -m)
+
+
 CFLAGS = -O3 \
          -funsafe-math-optimizations \
          $(shell sdl-config --cflags)
+
+ifeq ($(UNAME_M),x86_64)
 else
-ifeq ($(shell uname -m),aarch64)
-CFLAGS = -O3 \
-         -funsafe-math-optimizations \
-         $(shell sdl-config --cflags)
+ifeq ($(UNAME_M),aarch64)
 else
-# fallback on 32bit Raspberry PI ARM options
-CFLAGS = -O3 \
-         -mfloat-abi=hard \
-         -funsafe-math-optimizations \
-         -mno-unaligned-access \
-         $(shell sdl-config --cflags)
-endif
+ifneq (,$(findstring arm, $UNAME_M))
+CLAGS += -mfloat-abi=hard -mno-unaligned-access
 endif
 
 LDFLAGS = $(shell sdl-config --libs)
-LDLIBS = -lrt -lhpdf -lpng
+LDLIBS = -lhpdf -lpng
+ifneq ($(UNAME), Darwin)
+LDLIBS += -lrt
+endif
 
 PRG = printerToPDF
 SRC = PrinterConvert.c
 OBJ = $(SRC:%.c=%.o)
-FNT = $(wildcard font2/*.C16)
+FNT = $(wildcard font2/*.C16) $(wildcard font2/*.D12)
 
 PRGPATH = $(prefix)/bin
 DATAPATH = $(prefix)/lib/PrinterToPDF
