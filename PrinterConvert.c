@@ -4,6 +4,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <time.h>
+#include <limits.h>
 #include <unistd.h>
 #include <png.h>
 #include <setjmp.h>
@@ -11,10 +12,10 @@
 #include "/usr/include/SDL/SDL.h"
 #include "dir.c"
 
-const char* version = "v1.8";
+const char* version = "v1.9";
 
 /* Conversion program to convert Epson ESC/P printer data to an Adobe PDF file on Linux.
- * v1.8
+ * v1.9
  *
  * v1.0 First Release - taken from the conversion software currently in development for the Retro-Printer module.
  * v1.1 Swithced to using libHaru library to create the PDF file for speed and potential future enhancements - see http://libharu.org/
@@ -41,6 +42,7 @@ const char* version = "v1.8";
  *      - Load font data in one task calling fread()
  *      - Introduce quiet mode
  * v1.8 - Fixed some errors in graphics printing and double height text
+ * v1.9 - Fixed potential errors with negative movements
  *
  * www.retroprinter.com
  *
@@ -875,6 +877,7 @@ unsigned char tL, tH;                       // extra parameters top margin, lowb
 unsigned char bL, bH;                       // extra parameters bottom margin, lowbyte and high byte
 unsigned char d1, d2, d3;
 unsigned char a0, a1, a2;
+int advance;                                // Used to calculate negative movements
 int dotColumns;                             // number of dot columns for bit images
 
 // Tabs
@@ -1027,6 +1030,13 @@ void _print_incomingDataByte(int compressMode, unsigned char xd, int seedrowStar
     }
 }
 
+int _is_little_endian_machine()
+{
+  unsigned int x = 1;
+  char *c = (char*) &x;
+  return (int)*c;
+}
+
 void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth) {
     int opr, xByte, j, bytePointer, colour, existingColour, counterValue, repeatValue;
     unsigned char xd, repeater, command, dataCount;
@@ -1062,7 +1072,13 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
 
     // Get command into nibbles
     command = (unsigned char) xd >> 4;
-    parameter = (unsigned char) xd & 0xF;
+    parameter = 0;
+    if (_is_little_endian_machine()) {
+        parameter = (unsigned char) xd & 0xF;
+    } else {
+        parameter = (unsigned char) xd & 0xF;
+        parameter *= 1 << CHAR_BIT;
+    } 
 
     switch (command) {
     case 2:
@@ -2932,11 +2948,12 @@ main_loop_for_printing:
                         state = read_byte_from_file((char *) &mH);
                         thisDefaultUnit = defaultUnit;
                         if (defaultUnit == 0) thisDefaultUnit = printerdpiv / (float) 360; // Default for command is 1/360 inch units
-                        if (mH > 127) {
-                            // Handle negative movement
-                            mH = 127 - mH;
+                        advance = mH * 256 + mL;
+                        if (advance >= 32768) {
+                            // Handle negative movement mH > 127
+                            advance = (128 * 256) - advance;
                         }
-                        ypos2 = ypos + ((mH * 256) + mL) * (int) thisDefaultUnit;
+                        ypos2 = ypos + advance * (int) thisDefaultUnit; 
                         // Ignore if movement is more than 179/360" upwards
                         if (ypos2 < (ypos - (printerdpiv * ((float) 179/(float) 360))) ) ypos2 = ypos;
                         // ignore if command would move upwards after graphics command sent on current line, or above where graphics have
@@ -3055,11 +3072,12 @@ main_loop_for_printing:
                             thisDefaultUnit = printerdpih / (float) 120; // Default for command is 1/120 inch units in draft mode
                         }
                     }
-                    if (nH > 127) {
-                        // Handle negative movement
-                        nH = 127 - nH;
+                    advance = nH * 256 + nL;
+                    if (advance >= 32768) {
+                        // Handle negative movement nH > 127
+                        advance = (128 * 256) - advance;
                     }
-                    xpos2 = xpos + ((nH * 256) + nL) * (int) thisDefaultUnit;
+                    xpos2 = xpos + advance * (int) thisDefaultUnit;                    
                     if (xpos2 < marginleftp || xpos2 > marginrightp) {
                         // No action
                     } else {
@@ -3994,11 +4012,12 @@ main_loop_for_printing:
                         state = read_byte_from_file((char *) &mH);
                         thisDefaultUnit = defaultUnit;
                         if (defaultUnit == 0) thisDefaultUnit = printerdpiv / (float) 360; // Default for command is 1/360 inch units
-                        if (mH > 127) {
-                            // Handle negative movement
-                            mH = 127 - mH;
+                        advance = mH * 256 + mL;
+                        if (advance >= 32768) {
+                            // Handle negative movement mH > 127
+                            advance = (128 * 256) - advance;
                         }
-                        ypos2 = ypos + ((mH * 256) + mL) * (int) thisDefaultUnit;
+                        ypos2 = ypos + advance * (int) thisDefaultUnit; 
                         // Ignore if movement is more than 179/360" upwards
                         if (ypos2 < (ypos - (printerdpiv * ((float) 179/(float) 360))) ) ypos2 = ypos;
                         // ignore if command would move upwards after graphics command sent on current line, or above where graphics have
@@ -4359,11 +4378,12 @@ main_loop_for_printing:
                             thisDefaultUnit = printerdpih / (float) 120; // Default for command is 1/120 inch units in draft mode
                         }
                     }
-                    if (nH > 127) {
-                        // Handle negative movement
-                        nH = 127 - nH;
+                    advance = nH * 256 + nL;
+                    if (advance >= 32768) {
+                        // Handle negative movement nH > 127
+                        advance = (128 * 256) - advance;
                     }
-                    xpos2 = xpos + ((nH * 256) + nL) * (int) thisDefaultUnit;
+                    xpos2 = xpos + advance * (int) thisDefaultUnit;
                     if (xpos2 < marginleftp || xpos2 > marginrightp) {
                         // No action
                     } else {
