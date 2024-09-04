@@ -12,10 +12,10 @@
 #include "/usr/include/SDL/SDL.h"
 #include "dir.c"
 
-const char* version = "v1.9";
+const char* version = "v1.10";
 
 /* Conversion program to convert Epson ESC/P printer data to an Adobe PDF file on Linux.
- * v1.9
+ * v1.10
  *
  * v1.0 First Release - taken from the conversion software currently in development for the Retro-Printer module.
  * v1.1 Swithced to using libHaru library to create the PDF file for speed and potential future enhancements - see http://libharu.org/
@@ -43,6 +43,7 @@ const char* version = "v1.9";
  *      - Introduce quiet mode
  * v1.8 - Fixed some errors in graphics printing and double height text
  * v1.9 - Fixed potential errors with negative movements
+ * v1.10- Fixed errors in the Delta Row Printing Mode
  *
  * www.retroprinter.com
  *
@@ -947,12 +948,16 @@ int precedingDot(int x, int y) {
 }
 
 void _clear_seedRow(int seedrowColour) {
+    if (endlesstext == STREAM_STRIP_ESCP2) return;
+    
     // colourSupport seedrows - each pixel is represented by a bit.
     if (seedrowColour > (colourSupport-1)) seedrowColour = colourSupport-1;
     memset(seedrow + ((seedrowColour * pageSetWidth) /8), 0 , (pageSetWidth / 8));
 }
 
 void _print_seedRows(float hPixelWidth, float vPixelWidth){
+    if (endlesstext == STREAM_STRIP_ESCP2) return;
+    
     int store_colour, seedrowColour, bytePointer, seedrowStart, seedrowEnd;
     int byteOffset, bitOffset, xByte;
     unsigned char xd;
@@ -961,15 +966,23 @@ void _print_seedRows(float hPixelWidth, float vPixelWidth){
     xpos = marginleftp;
     for (seedrowColour = 0; seedrowColour < colourSupport; seedrowColour++) {
         printColour = seedrowColour;
-        if (seedrowColour == 3) printColour = 4; // Yellow
-        if (seedrowColour == 4) printColour = 9; // Light Cyan
-        if (seedrowColour == 5) printColour = 10; // Light Magenta
+        switch (seedrowColour) {
+            case 3:
+                printColour = 4; // Yellow
+                break;
+            case 4:
+                printColour = 9; // Light Magenta
+                break;
+            case 5:
+                printColour = 10; // Light Cyan
+                break;
+        }        
         seedrowStart = (seedrowColour * pageSetWidth) /8;
         seedrowEnd = seedrowStart + (pageSetWidth / 8);
         bytePointer = seedrowStart + (xpos / 8);
-        bitOffset = 7 - (xpos % 8);
+        bitOffset = 7 - ((int) xpos & 7); // Bit & 7 is cheaper than remainder % 8
         for (byteOffset = bytePointer; byteOffset < seedrowEnd; byteOffset++) {
-            xd = seedrow[byteOffset];
+            xd = seedrow[byteOffset];            
             if (xd > 0) {
                 for (xByte = bitOffset; xByte >= 0; xByte--) {
                     if (isNthBitSet(xd,xByte)) {
@@ -988,19 +1001,26 @@ void _print_seedRows(float hPixelWidth, float vPixelWidth){
 }
 
 void _print_incomingDataByte(int compressMode, unsigned char xd, int seedrowStart, int seedrowEnd, float hPixelWidth, float vPixelWidth) {
+    if (endlesstext == STREAM_STRIP_ESCP2) return;
+    
     int byteOffset, bitOffset, xByte;
     byteOffset = seedrowStart + (xpos / 8);
-    bitOffset = 7 - (xpos % 8);
+    bitOffset = 7 - ((int) xpos & 7);            // Bit & 7 is cheaper than remainder % 8
     if (xd == 0) {
         if (compressMode == 3) {
             // for ESC.3 Delta Row clear bits in seedrow for current colour
             for (xByte = 0; xByte < 8; xByte++) {
-                if (byteOffset < seedrowEnd) seedrow[byteOffset] &= ~(1 << bitOffset);
-                if (bitOffset == 0) {
-                    byteOffset++;
-                    bitOffset = 7;
+                if (byteOffset < seedrowEnd) {
+                    // Clear bit in the seed row
+                    seedrow[byteOffset] &= ~(1 << bitOffset);
+                    if (bitOffset == 0) {
+                        byteOffset++;
+                        bitOffset = 7;
+                    } else {
+                        bitOffset--;
+                    }
                 } else {
-                    bitOffset--;
+                    break;
                 }
             }
         }
@@ -1008,21 +1028,28 @@ void _print_incomingDataByte(int compressMode, unsigned char xd, int seedrowStar
     } else {
         for (xByte = 0; xByte < 8; xByte++) {
             if (compressMode == 3) {
-                if (xd & 128 && byteOffset < seedrowEnd ) {
-                    seedrow[byteOffset] |= (1 << bitOffset);
-                } else if (byteOffset < seedrowEnd ) {
-                    seedrow[byteOffset] &= ~(1 << bitOffset);
-                }
-                if (bitOffset == 0) {
-                    byteOffset++;
-                    bitOffset = 7;
+                if (byteOffset < seedrowEnd) {
+                    if (xd & 128) {
+                        // Set bit in the seed row
+                        seedrow[byteOffset] |= (1 << bitOffset);
+                    } else {
+                        // Clear bit in the seed row
+                        seedrow[byteOffset] &= ~(1 << bitOffset);
+                    }
+                    if (bitOffset == 0) {
+                        byteOffset++;
+                        bitOffset = 7;
+                    } else {
+                        bitOffset--;
+                    }
                 } else {
-                    bitOffset--;
+                    break;
                 }
-            }
-            if (xd & 128) {
-                // Draw it on screen
-                putpixelbig(xpos, ypos, hPixelWidth, vPixelWidth);
+            } else {
+                if (xd & 128) {
+                    // Draw it on screen
+                    putpixelbig(xpos, ypos, hPixelWidth, vPixelWidth);
+                }
             }
             xd = xd << 1;
             xpos += hPixelWidth;
@@ -1043,266 +1070,237 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
     signed int parameter;
     int byteOffset, bitOffset;
     int moveSize = 1; // Set by MOVEXDOT or MOVEXBYTE
-    int seedrowColour, seedrowStart, seedrowEnd, colourLoop;
+    int seedrowColour = 5;
+    int seedrowStart, seedrowEnd, colourLoop;
     if (compressMode == 3) {
         // Delta Row Compression - clear all seed rows
-        for (j = 0; j < seedrowColour; j ++) {
+        for (j = 0; j <= seedrowColour; j++) {
             _clear_seedRow(j);
         }
     }
     existingColour = printColour;
     // Original ESC/P2 supports 4 colours, but later printers support 6 or even 8 !
     // Supported Colours are 0 = BLACK, 1 = MAGENTA, 2 = CYAN, 4 = YELLOW, 9 = LIGHT MAGENTA, 10 = LIGHT CYAN
-    if (printColour > 4 && printColour <9) printColour = 4;
-    if (printColour > 10) printColour = 10;
+    if (printColour > 4 && printColour < 9) printColour = 4; 
+    if (printColour > 10) printColour = 20; 
 
   tiff_delta_loop:
+    // Work out current seedrow for Delta Row Printing
     seedrowColour = printColour;
-    if (seedrowColour == 4) seedrowColour = 3; // Colours are 0,1,2,4,9 & 10
-    if (seedrowColour == 9) seedrowColour = 4; // Colours are 0,1,2,4,9 & 10
-    if (seedrowColour == 10) seedrowColour = 5; // Colours are 0,1,2,4,9 & 10
+    switch (printColour) {
+        case 4:
+            seedrowColour = 3; // Colours are 0,1,2,4,9 & 10
+            break;
+        case 9:
+            seedrowColour = 4; // Colours are 0,1,2,4,9 & 10
+            break;
+        case 10:
+            seedrowColour = 5; // Colours are 0,1,2,4,9 & 10  
+            break;
+    }
     seedrowStart = (seedrowColour * pageSetWidth) / 8;
     seedrowEnd = seedrowStart + (pageSetWidth / 8);
 
-    state = 0;
-    while (state == 0) {
-        state = read_byte_from_file((char *) &xd);
-        if (state == 0) goto raus_tiff_delta_print;
-    }
-
     // Get command into nibbles
-    command = (unsigned char) xd >> 4;
-    parameter = 0;
+    state = read_byte_from_file((char *) &xd);  // byte1
+    if (!state) goto raus_tiff_delta_print;
+    command = 0;
+    parameter = 0;    
+    command = (unsigned char) xd >> 4;    
     if (_is_little_endian_machine()) {
         parameter = (unsigned char) xd & 0xF;
     } else {
         parameter = (unsigned char) xd & 0xF;
         parameter *= 1 << CHAR_BIT;
-    } 
+    }
 
     switch (command) {
-    case 2:
-        // XFER 0010 xxxx - parameter number of raster image data 0...15
-        for (opr = 0; opr < parameter; opr ++) {
-            state = 0;
-            while (state == 0) {
-                state = read_byte_from_file((char *) &repeater);
-                if (state == 0) goto raus_tiff_delta_print;
-            }
-            if (repeater <= 127) {
-                repeater++;
-                // string of data byes to be printed
-                for (j = 0; j < repeater; j++) {
-                    state = 0;
-                    while (state == 0) {
-                        state = read_byte_from_file((char *) &xd);  // byte to be printed
-                        if (state == 0) goto raus_tiff_delta_print;
-                    }
-                    _print_incomingDataByte(compressMode, xd, seedrowStart, seedrowEnd, hPixelWidth, vPixelWidth);
-                    // SDL_UpdateRect(display, 0, 0, 0, 0);
-                    opr++;
-                }
-            } else {
-                // Repeat following byte twos complement (repeater)
-                repeater = (256 - repeater) + 1;
-                state = 0;
-                while (state == 0) {
-                    state = read_byte_from_file((char *) &xd);  // byte to be printed
-                    if (state == 0) goto raus_tiff_delta_print;
-                }
-                for (j = 0; j < repeater; j++) {
-                    _print_incomingDataByte(compressMode, xd, seedrowStart, seedrowEnd, hPixelWidth, vPixelWidth);
-                    // SDL_UpdateRect(display, 0, 0, 0, 0);
-                }
-                opr++;
-            }
-        }
-        break;
-    case 3:
-        // XFER 0011 xxxx - parameter number of lookups to raster printer image data 1...2
-        if (parameter == 1) {
-            state = 0;
-            while (state == 0) {
-                state = read_byte_from_file((char *) &dataCount);
-                if (state == 0) goto raus_tiff_delta_print;
-            }
-            counterValue = (int) dataCount;
-        } else {
-            state = 0;
-            while (state == 0) {
-                state = read_byte_from_file((char *) &nL);
-                if (state == 0) goto raus_tiff_delta_print;
-            }
-            state = 0;
-            while (state == 0) {
-                state = read_byte_from_file((char *) &nH);
-                if (state == 0) goto raus_tiff_delta_print;
-            }
-            counterValue = nL + (256 * nH);
-        }
-        for (opr = 0; opr < counterValue; opr ++) {
-            state = 0;
-            while (state == 0) {
-                state = read_byte_from_file((char *) &repeater);  // number of times to repeat next byte
-                if (state == 0) goto raus_tiff_delta_print;
-            }
-            repeatValue = (int) repeater;
-            if (repeatValue <= 127) {
-                repeatValue++;
-                // string of data byes to be printed
-                for (j = 0; j < repeatValue; j++) {
-                    state = 0;
-                    while (state == 0) {
-                        state = read_byte_from_file((char *) &xd);  // byte to be printed
-                        if (state == 0) goto raus_tiff_delta_print;
-                    }
-                    _print_incomingDataByte(compressMode, xd, seedrowStart, seedrowEnd, hPixelWidth, vPixelWidth);
-                    // SDL_UpdateRect(display, 0, 0, 0, 0);
-                    opr++;
-                }
-            } else {
-                // Repeat following byte twos complement (repeater)
-                repeatValue = (256 - repeater) + 1;
-                state = 0;
-                while (state == 0) {
-                    state = read_byte_from_file((char *) &xd);  // byte to be printed
-                    if (state == 0) goto raus_tiff_delta_print;
-                }
-                for (j = 0; j < repeatValue; j++) {
-                    _print_incomingDataByte(compressMode, xd, seedrowStart, seedrowEnd, hPixelWidth, vPixelWidth);
-                    // SDL_UpdateRect(display, 0, 0, 0, 0);
-                }
-                opr++;
-            }
-        }
-        break;
-    case 4:
-        // MOVX 0100 xxxx - space to move -8 to 7
-        if (parameter > 7) parameter = 7 - parameter;
-        thisDefaultUnit = defaultUnit;
-        if (defaultUnit == 0) thisDefaultUnit = printerdpiv / (float) 360; // Default for command is 1/360 inch units
-        xpos2 = xpos + (parameter * moveSize * (int) thisDefaultUnit);
-        if (xpos2 >= marginleftp && xpos2 <= marginrightp) xpos = xpos2;
-        break;
-    case 5:
-        // MOVX 0101 xxxx - parameter number of lookups to movement data 1...2
-        if (parameter == 1) {
-            state = 0;
-            while (state == 0) {
-                state = read_byte_from_file((char *) &parameter);
-                if (state == 0) goto raus_tiff_delta_print;
-            }
-            if (parameter > 127) parameter = 127 - parameter;
-        } else {
-            state = 0;
-            while (state == 0) {
-                state = read_byte_from_file((char *) &nL);
-                if (state == 0) goto raus_tiff_delta_print;
-            }
-            state = 0;
-            while (state == 0) {
-                state = read_byte_from_file((char *) &nH);
-                if (state == 0) goto raus_tiff_delta_print;
-            }
-            parameter = nL + (256 * nH);
-            if (parameter > 32767) parameter = 32767 - parameter;
-        }
-        thisDefaultUnit = defaultUnit;
-        if (defaultUnit == 0) thisDefaultUnit = printerdpiv / (float) 360; // Default for command is 1/360 inch units
-        xpos2 = xpos + (parameter * moveSize * (int) thisDefaultUnit);
-        if (xpos2 >= marginleftp && xpos2 <= marginrightp) xpos = xpos2;
-        break;
-    case 6:
-        // MOVY 0110 xxxx - space to move down 0 to 15 units
-        // See ESC ( U command for unit
-        thisDefaultUnit = defaultUnit;
-        if (defaultUnit == 0) thisDefaultUnit = printerdpiv / (float) 360; // Default for command is 1/360 inch units
-        ypos += parameter * (int) thisDefaultUnit;
-        test_for_new_paper();
-        if (compressMode == 3) _print_seedRows(hPixelWidth, vPixelWidth);
-        xpos = marginleftp;
-        break;
-    case 7:
-        // MOVY 0111 xxxx - space to move down X dots
-        if (parameter == 1) {
-            state = 0;
-            while (state == 0) {
-                state = read_byte_from_file((char *) &parameter);
-                if (state == 0) goto raus_tiff_delta_print;
-            }
-        } else {
-            state = 0;
-            while (state == 0) {
-                state = read_byte_from_file((char *) &nL);
-                if (state == 0) goto raus_tiff_delta_print;
-            }
-            state = 0;
-            while (state == 0) {
-                state = read_byte_from_file((char *) &nH);
-                if (state == 0) goto raus_tiff_delta_print;
-            }
-            parameter = nL + (256 * nH);
-        }
-        thisDefaultUnit = defaultUnit;
-        if (defaultUnit == 0) thisDefaultUnit = printerdpiv / (float) 360; // Default for command is 1/360 inch units
-        ypos += parameter * (int) thisDefaultUnit;
-        test_for_new_paper();
-        if (compressMode == 3) _print_seedRows(hPixelWidth, vPixelWidth);
-        xpos = marginleftp;
-        break;
-    case 8:
-        // COLR 1000 xxxx
-        printColour = parameter;
-        xpos = marginleftp;
-        break;
-    case 14:
-        switch (parameter) {
-        case 1:
-            // CLR 1110 0001
-            if (compressMode == 3) {
-                // Clear seedrow for current colour
-                _clear_seedRow(seedrowColour);
-                // Reset the current row on the paper to white and then add the other colours
-                bytePointer = ypos * pageSetWidth;
-                // Clear display
-                colour = printColour;
-                printColour = 7; // White
-                xpos = marginleftp;
-                for (byteOffset = bytePointer; byteOffset < bytePointer + pageSetWidth; byteOffset++) {
-                    printermemory[byteOffset] = WHITE;
-                    if (sdlon == 1) {
-                        putpixelbig(xpos, ypos, hPixelWidth, vPixelWidth);
-                        xpos += hPixelWidth;
-                    }
-                }
-                printColour = colour;
-
-                // Copy all other seed data across to row on page
-                _print_seedRows(hPixelWidth, vPixelWidth);
-                xpos = marginleftp;
-            }
-            break;
         case 2:
-            // CR 1110 0010
-            xpos = marginleftp;
+            // XFER 0010 xxxx - parameter number of raster image data 0...15
+            for (opr = 0; opr < parameter; opr++) {
+                state = read_byte_from_file((char *) &repeater);  // byte1
+                if (!state) goto raus_tiff_delta_print;
+                if (repeater <= 127) {
+                    repeater++;
+                    // string of data byes to be printed
+                    for (j = 0; j < repeater; j++) {
+                        state = read_byte_from_file((char *) &xd);  // byte1
+                        if (!state) goto raus_tiff_delta_print;
+                        opr++;
+                        _print_incomingDataByte(compressMode, xd, seedrowStart, seedrowEnd, hPixelWidth, vPixelWidth);
+                        // SDL_UpdateRect(display, 0, 0, 0, 0);
+                    }
+                } else {
+                    // Repeat following byte twos complement (repeater)
+                    repeater = (256 - repeater) + 1;
+                    state = read_byte_from_file((char *) &xd);  // byte1
+                    if (!state) goto raus_tiff_delta_print;
+                    opr++;
+                    for (j = 0; j < repeater; j++) {
+                        _print_incomingDataByte(compressMode, xd, seedrowStart, seedrowEnd, hPixelWidth, vPixelWidth);
+                        // SDL_UpdateRect(display, 0, 0, 0, 0);
+                    }
+                }
+            }
             break;
         case 3:
-            // EXIT 1110 0011
-            xpos = marginleftp;
-            goto raus_tiff_delta_print;
+            // XFER 0011 xxxx - parameter number of lookups to raster printer image data 1...2
+            if (parameter == 1) {
+                state = read_byte_from_file((char *) &dataCount);  // byte1
+                if (!state) goto raus_tiff_delta_print;
+                counterValue = (int) dataCount;
+            } else {
+                state = read_byte_from_file((char *) &nL);  // byte1
+                if (!state) goto raus_tiff_delta_print;
+                state = read_byte_from_file((char *) &nH);  // byte1
+                if (!state) goto raus_tiff_delta_print;
+                counterValue = nL + (256 * nH);
+            }
+            for (opr = 0; opr < counterValue; opr++) {
+                state = read_byte_from_file((char *) &repeater);  // byte1
+                if (!state) goto raus_tiff_delta_print;            
+                repeatValue = (int) repeater;
+                if (repeatValue <= 127) {
+                    repeatValue++;
+                    // string of data byes to be printed
+                    for (j = 0; j < repeatValue; j++) {
+                        state = read_byte_from_file((char *) &xd);  // byte1
+                        if (!state) goto raus_tiff_delta_print;
+                        opr++;
+                        _print_incomingDataByte(compressMode, xd, seedrowStart, seedrowEnd, hPixelWidth, vPixelWidth);
+                        // SDL_UpdateRect(display, 0, 0, 0, 0);                    
+                    }
+                } else {
+                    // Repeat following byte twos complement (repeater)
+                    repeatValue = (256 - repeater) + 1;
+                    state = read_byte_from_file((char *) &xd);  // byte1
+                    if (!state) goto raus_tiff_delta_print;
+                    opr++;
+                    for (j = 0; j < repeatValue; j++) {
+                        _print_incomingDataByte(compressMode, xd, seedrowStart, seedrowEnd, hPixelWidth, vPixelWidth);
+                        // SDL_UpdateRect(display, 0, 0, 0, 0);
+                    }
+                }
+            }
             break;
         case 4:
-            // MOVEXBYTE 1110 0100
-            moveSize = 8;
+            // MOVX 0100 xxxx - space to move -8 to 7
+            if (parameter > 0) {        
+                if (parameter > 7) parameter = 7 - parameter;
+                if (useExtendedSettings) {
+                    // See ESC ( U command for unit
+                    thisDefaultUnit = relHorizontalUnit;
+                } else {
+                    thisDefaultUnit = defaultUnit;
+                }        
+                if (defaultUnit == 0) thisDefaultUnit = printerdpih * resolution360; // Default for command is 1/360 inch units
+                xpos2 = xpos + (parameter * moveSize * (int) thisDefaultUnit);
+                if (xpos2 >= marginleftp && xpos2 <= marginrightp) xpos = xpos2;
+            }
+            break;
+        case 5:    
+            // MOVX 0101 xxxx - parameter number of lookups to movement data 1...2
+            if (parameter > 0) {        
+                if (parameter == 1) {
+                    state = read_byte_from_file((char *) &parameter);  // byte1
+                    if (!state) goto raus_tiff_delta_print;
+                    if (parameter > 127) parameter = 127 - parameter;
+                } else {
+                    state = read_byte_from_file((char *) &nL);  // byte1
+                    if (!state) goto raus_tiff_delta_print;
+                    state = read_byte_from_file((char *) &nH);  // byte1
+                    if (!state) goto raus_tiff_delta_print;    
+                    parameter = nL + (256 * nH);
+                    if (parameter >= 32768) parameter = (128 * 256) - parameter;
+                }
+                if (useExtendedSettings) {
+                    // See ESC ( U command for unit
+                    thisDefaultUnit = relHorizontalUnit;
+                } else {
+                    thisDefaultUnit = defaultUnit;
+                }        
+                if (defaultUnit == 0) thisDefaultUnit = printerdpih * resolution360; // Default for command is 1/360 inch units
+                xpos2 = xpos + (parameter * moveSize * (int) thisDefaultUnit);
+                if (xpos2 >= marginleftp && xpos2 <= marginrightp) xpos = xpos2;
+            }
+            break;
+        case 6:
+            // MOVY 0110 xxxx - space to move down 0 to 15 units
+            if (compressMode == 3) _print_seedRows(hPixelWidth, vPixelWidth);
+            if (parameter > 0) {
+                if (useExtendedSettings) {
+                    // See ESC ( U command for unit
+                    thisDefaultUnit = relVerticalUnit;
+                } else {
+                    thisDefaultUnit = defaultUnit;
+                }        
+                if (defaultUnit == 0) thisDefaultUnit = printerdpiv * resolution360; // Default for command is 1/360 inch units
+                ypos += parameter * (int) thisDefaultUnit;
+                test_for_new_paper(0);
+            }        
             xpos = marginleftp;
             break;
-        case 5:
-            // MOVEXDOT 1110 0101
-            moveSize = 1;
+        case 7:
+            // MOVY 0111 xxxx - space to move down X dots
+            if (compressMode == 3) _print_seedRows(hPixelWidth, vPixelWidth);
+            if (parameter > 0) {
+                if (parameter == 1) {
+                    state = read_byte_from_file((char *) &parameter);  // byte1
+                    if (!state) goto raus_tiff_delta_print;
+                } else {
+                    state = read_byte_from_file((char *) &nL);  // byte1
+                    if (!state) goto raus_tiff_delta_print;
+                    state = read_byte_from_file((char *) &nH);  // byte1
+                    if (!state) goto raus_tiff_delta_print;
+                    parameter = nL + (256 * nH);
+                }        
+                if (useExtendedSettings) {
+                    // See ESC ( U command for unit
+                    thisDefaultUnit = relVerticalUnit;
+                } else {
+                    thisDefaultUnit = defaultUnit;
+                }        
+                if (defaultUnit == 0) thisDefaultUnit = printerdpiv * resolution360; // Default for command is 1/360 inch units        
+                ypos += parameter * (int) thisDefaultUnit;
+                test_for_new_paper(0);
+            }
             xpos = marginleftp;
             break;
-        }
-        break;
+        case 8:
+            // COLR 1000 xxxx
+            printColour = parameter;
+            xpos = marginleftp;
+            break;
+        case 14:
+            switch (parameter) {
+                case 1:
+                    // CLR 1110 0001
+                    if (compressMode == 3) {
+                        // Clear seedrow for current colour
+                        _clear_seedRow(seedrowColour);
+                    }
+                    break;
+                case 2:
+                    // CR 1110 0010
+                    xpos = marginleftp;
+                    break;
+                case 3:
+                    // EXIT 1110 0011
+                    xpos = marginleftp;
+                    goto raus_tiff_delta_print;
+                    break;
+                case 4:
+                    // MOVEXBYTE 1110 0100
+                    moveSize = 8;
+                    xpos = marginleftp;
+                    break;
+                case 5:
+                    // MOVEXDOT 1110 0101
+                    moveSize = 1;
+                    xpos = marginleftp;
+                    break;
+            }
+            break;
     }
     goto tiff_delta_loop;
 
