@@ -948,16 +948,12 @@ int precedingDot(int x, int y) {
 }
 
 void _clear_seedRow(int seedrowColour) {
-    if (endlesstext == STREAM_STRIP_ESCP2) return;
-    
     // colourSupport seedrows - each pixel is represented by a bit.
     if (seedrowColour > (colourSupport-1)) seedrowColour = colourSupport-1;
     memset(seedrow + ((seedrowColour * pageSetWidth) /8), 0 , (pageSetWidth / 8));
 }
 
-void _print_seedRows(float hPixelWidth, float vPixelWidth){
-    if (endlesstext == STREAM_STRIP_ESCP2) return;
-    
+void _print_seedRows(float hPixelWidth, float vPixelWidth){   
     int store_colour, seedrowColour, bytePointer, seedrowStart, seedrowEnd;
     int byteOffset, bitOffset, xByte;
     unsigned char xd;
@@ -1001,8 +997,6 @@ void _print_seedRows(float hPixelWidth, float vPixelWidth){
 }
 
 void _print_incomingDataByte(int compressMode, unsigned char xd, int seedrowStart, int seedrowEnd, float hPixelWidth, float vPixelWidth) {
-    if (endlesstext == STREAM_STRIP_ESCP2) return;
-    
     int byteOffset, bitOffset, xByte;
     byteOffset = seedrowStart + (xpos / 8);
     bitOffset = 7 - ((int) xpos & 7);            // Bit & 7 is cheaper than remainder % 8
@@ -1082,7 +1076,7 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
     // Original ESC/P2 supports 4 colours, but later printers support 6 or even 8 !
     // Supported Colours are 0 = BLACK, 1 = MAGENTA, 2 = CYAN, 4 = YELLOW, 9 = LIGHT MAGENTA, 10 = LIGHT CYAN
     if (printColour > 4 && printColour < 9) printColour = 4; 
-    if (printColour > 10) printColour = 20; 
+    if (printColour > 10) printColour = 10; 
 
   tiff_delta_loop:
     // Work out current seedrow for Delta Row Printing
