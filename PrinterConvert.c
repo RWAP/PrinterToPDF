@@ -12,10 +12,10 @@
 #include "/usr/include/SDL/SDL.h"
 #include "dir.c"
 
-const char* version = "v1.10";
+const char* version = "v1.11";
 
 /* Conversion program to convert Epson ESC/P printer data to an Adobe PDF file on Linux.
- * v1.10
+ * v1.11
  *
  * v1.0 First Release - taken from the conversion software currently in development for the Retro-Printer module.
  * v1.1 Swithced to using libHaru library to create the PDF file for speed and potential future enhancements - see http://libharu.org/
@@ -44,6 +44,7 @@ const char* version = "v1.10";
  * v1.8 - Fixed some errors in graphics printing and double height text
  * v1.9 - Fixed potential errors with negative movements
  * v1.10- Fixed errors in the Delta Row Printing Mode
+ * v1.11- Added missing definition for resolution360
  *
  * www.retroprinter.com
  *
@@ -85,6 +86,8 @@ int cdpiv = 144;                            // fixed dots per inch used for prin
 int cpih = 10;                              // Default is PICA
 int cpiv = 6;                               // Default font height in cpi (default line spacing is 1/6" inch too)
 int dpih = 180, dpiv = 180;                 // resolution in dpi for ESC/P2 printers
+
+const float resolution360 = 1 / (float) 360; 
 
 // Space used for storage - printermemory holds the bitmap file generated from the captured data
 // seedrow is used for enhanced ESC/P2 printer modes where each line is based on preceding line
